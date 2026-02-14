@@ -21,7 +21,9 @@ func (k CacheKey) String() string {
 
 // ComputeCacheKey derives a cache key from SHA-256 of the template file
 // contents (or command+args for command mode) combined with the logical name.
-func ComputeCacheKey(cfg *config.FileConfig) (CacheKey, error) {
+// If env is non-nil, the sorted key=value pairs are included after a domain
+// separator so that different activation environments produce different keys.
+func ComputeCacheKey(cfg *config.FileConfig, env map[string]string) (CacheKey, error) {
 	h := sha256.New()
 
 	if cfg.Template != "" {
@@ -34,6 +36,18 @@ func ComputeCacheKey(cfg *config.FileConfig) (CacheKey, error) {
 	} else {
 		parts := slices.Concat([]string{cfg.Command}, cfg.Args)
 		h.Write([]byte(strings.Join(parts, "\x00")))
+	}
+
+	if len(env) > 0 {
+		h.Write([]byte("\x00\x00slinky:env\x00\x00"))
+		keys := make([]string, 0, len(env))
+		for k := range env {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		for _, k := range keys {
+			h.Write([]byte(k + "=" + env[k] + "\x00"))
+		}
 	}
 
 	var hash [32]byte

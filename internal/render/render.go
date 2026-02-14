@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"text/template"
@@ -24,8 +25,11 @@ import (
 
 const Timeout = 10 * time.Second
 
+// EnvLookup resolves environment variables. nil means os.LookupEnv.
+type EnvLookup func(string) (string, bool)
+
 type TemplateRenderer interface {
-	Render(cfg *config.FileConfig) ([]byte, error)
+	Render(cfg *config.FileConfig, envLookup EnvLookup, envOverrides map[string]string) ([]byte, error)
 }
 
 var sharedNativeRenderer = &NativeRenderer{}
@@ -72,14 +76,14 @@ func (r *NativeRenderer) loadTemplate(tplPath string) (string, error) {
 	return text, nil
 }
 
-func (r *NativeRenderer) Render(cfg *config.FileConfig) ([]byte, error) {
+func (r *NativeRenderer) Render(cfg *config.FileConfig, envLookup EnvLookup, envOverrides map[string]string) ([]byte, error) {
 	tplPath := config.ExpandPath(cfg.Template)
 	tplText, err := r.loadTemplate(tplPath)
 	if err != nil {
 		return nil, err
 	}
 
-	funcMap, err := buildFuncMap()
+	funcMap, err := buildFuncMap(envLookup, envOverrides)
 	if err != nil {
 		return nil, fmt.Errorf("building template functions: %w", err)
 	}
@@ -97,7 +101,11 @@ func (r *NativeRenderer) Render(cfg *config.FileConfig) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func buildFuncMap() (template.FuncMap, error) {
+func buildFuncMap(envLookup EnvLookup, envOverrides map[string]string) (template.FuncMap, error) {
+	if envLookup == nil {
+		envLookup = os.LookupEnv
+	}
+
 	handler := sprout.New()
 
 	if err := handler.AddRegistries(
@@ -110,27 +118,24 @@ func buildFuncMap() (template.FuncMap, error) {
 
 	funcMap := handler.Build()
 
-	funcMap["env"] = envFunc
-	funcMap["envDefault"] = envDefaultFunc
+	funcMap["env"] = func(key string) (string, error) {
+		val, ok := envLookup(key)
+		if !ok {
+			return "", fmt.Errorf("required environment variable %q is not set", key)
+		}
+		return val, nil
+	}
+	funcMap["envDefault"] = func(key, fallback string) string {
+		val, ok := envLookup(key)
+		if ok && val != "" {
+			return val
+		}
+		return fallback
+	}
 	funcMap["file"] = fileFunc
-	funcMap["exec"] = execFunc
+	funcMap["exec"] = makeExecFunc(envOverrides)
 
 	return funcMap, nil
-}
-
-func envFunc(key string) (string, error) {
-	val, ok := os.LookupEnv(key)
-	if !ok {
-		return "", fmt.Errorf("required environment variable %q is not set", key)
-	}
-	return val, nil
-}
-
-func envDefaultFunc(key, fallback string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
-	}
-	return fallback
 }
 
 func fileFunc(path string) (string, error) {
@@ -143,31 +148,38 @@ func fileFunc(path string) (string, error) {
 	return string(data), nil
 }
 
-func execFunc(name string, args ...string) (string, error) {
-	slog.Debug("template function: exec", "command", name, "args", args)
-	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
-	defer cancel()
+// makeExecFunc returns a template function that runs a command and returns
+// its stdout. envOverrides are merged into the process environment so that
+// commands invoked from templates see the activating shell's PATH and other
+// variables.
+func makeExecFunc(envOverrides map[string]string) func(string, ...string) (string, error) {
+	return func(name string, args ...string) (string, error) {
+		slog.Debug("template function: exec", "command", name, "args", args)
+		ctx, cancel := context.WithTimeout(context.Background(), Timeout)
+		defer cancel()
 
-	cmdPath, err := resolveCommand(name)
-	if err != nil {
-		return "", fmt.Errorf("exec %q: %w", name, err)
+		cmdPath, err := resolveCommand(name, envOverrides)
+		if err != nil {
+			return "", fmt.Errorf("exec %q: %w", name, err)
+		}
+
+		cmd := exec.CommandContext(ctx, cmdPath, args...)
+		cmd.Env = mergeEnv(os.Environ(), envOverrides)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("exec %q: %w (stderr: %s)", name, err, strings.TrimSpace(stderr.String()))
+		}
+
+		return strings.TrimRight(stdout.String(), "\n"), nil
 	}
-
-	cmd := exec.CommandContext(ctx, cmdPath, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("exec %q: %w (stderr: %s)", name, err, strings.TrimSpace(stderr.String()))
-	}
-
-	return strings.TrimRight(stdout.String(), "\n"), nil
 }
 
 type CommandRenderer struct{}
 
-func (r *CommandRenderer) Render(cfg *config.FileConfig) ([]byte, error) {
+func (r *CommandRenderer) Render(cfg *config.FileConfig, _ EnvLookup, envOverrides map[string]string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
 	defer cancel()
 
@@ -176,12 +188,13 @@ func (r *CommandRenderer) Render(cfg *config.FileConfig) ([]byte, error) {
 		args[i] = config.ExpandPath(arg)
 	}
 
-	cmdPath, err := resolveCommand(cfg.Command)
+	cmdPath, err := resolveCommand(cfg.Command, envOverrides)
 	if err != nil {
 		return nil, fmt.Errorf("command %q: %w", cfg.Command, err)
 	}
 
 	cmd := exec.CommandContext(ctx, cmdPath, args...)
+	cmd.Env = mergeEnv(os.Environ(), envOverrides)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -194,8 +207,41 @@ func (r *CommandRenderer) Render(cfg *config.FileConfig) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
-func resolveCommand(name string) (string, error) {
-	env := os.Environ()
+func resolveCommand(name string, envOverrides map[string]string) (string, error) {
+	var env []string
+	if len(envOverrides) == 0 {
+		env = os.Environ()
+	} else {
+		env = mergeEnv(os.Environ(), envOverrides)
+	}
 	cwd, _ := os.Getwd()
 	return interp.LookPathDir(cwd, expand.ListEnviron(env...), name)
+}
+
+// mergeEnv merges overrides into base environment entries, replacing existing
+// keys rather than appending duplicates. Returns nil if overrides is empty
+// (exec.Cmd interprets nil Env as "inherit process env").
+func mergeEnv(base []string, overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return nil
+	}
+
+	env := slices.Clone(base)
+
+	existing := make(map[string]int, len(env))
+	for i, entry := range env {
+		if k, _, ok := strings.Cut(entry, "="); ok {
+			existing[k] = i
+		}
+	}
+
+	for k, v := range overrides {
+		if idx, ok := existing[k]; ok {
+			env[idx] = k + "=" + v
+		} else {
+			env = append(env, k+"="+v)
+		}
+	}
+
+	return env
 }

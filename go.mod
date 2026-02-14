@@ -8,6 +8,7 @@ require (
 	github.com/charmbracelet/fang v0.4.4
 	github.com/go-sprout/sprout v1.0.3
 	github.com/hanwen/go-fuse/v2 v2.9.0
+	github.com/kardianos/service v1.2.4
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sys v0.41.0
 	mvdan.cc/sh/v3 v3.12.0

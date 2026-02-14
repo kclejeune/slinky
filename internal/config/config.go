@@ -83,9 +83,10 @@ func (cm *ConflictMode) UnmarshalText(text []byte) error {
 }
 
 type Settings struct {
-	Mount   MountConfig   `toml:"mount"`
-	Cache   CacheConfig   `toml:"cache"`
-	Symlink SymlinkConfig `toml:"symlink"`
+	Mount              MountConfig   `toml:"mount"`
+	Cache              CacheConfig   `toml:"cache"`
+	Symlink            SymlinkConfig `toml:"symlink"`
+	ProjectConfigNames []string      `toml:"project_config_names"`
 }
 
 type Config struct {
@@ -257,4 +258,79 @@ func DefaultConfigPath() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "slinky", "config.toml")
+}
+
+// ProjectRoot returns the project root for a config file path. For files
+// in a config subdirectory (e.g. ".slinky/config.toml"), returns the
+// grandparent; otherwise returns the parent.
+func ProjectRoot(configPath string, configNames []string) string {
+	dir := filepath.Dir(configPath)
+	base := filepath.Base(dir)
+	for _, name := range configNames {
+		if subdir := filepath.Dir(name); subdir != "." && subdir == base {
+			return filepath.Dir(dir)
+		}
+	}
+	return dir
+}
+
+// ResolveProjectPath resolves a path relative to the project root.
+// Absolute paths and ~/paths are returned as-is after expansion.
+func ResolveProjectPath(path, projectRoot string) string {
+	expanded := ExpandPath(path)
+	if filepath.IsAbs(expanded) {
+		return expanded
+	}
+	return filepath.Join(projectRoot, expanded)
+}
+
+type ProjectConfig struct {
+	Files map[string]*FileConfig `toml:"files"`
+
+	// This field exists only to detect and reject it.
+	Settings any `toml:"settings"`
+}
+
+// LoadProjectConfig parses a project-scoped .slinky.toml file.
+// [settings] sections are rejected; only [files.*] is allowed.
+func LoadProjectConfig(path string, configNames []string) (map[string]*FileConfig, error) {
+	path = ExpandPath(path)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading project config: %w", err)
+	}
+
+	var pc ProjectConfig
+	if err := toml.Unmarshal(data, &pc); err != nil {
+		return nil, fmt.Errorf("parsing project config %q: %w", path, err)
+	}
+
+	if pc.Settings != nil {
+		return nil, fmt.Errorf("project config %q: [settings] is not allowed in project configs (daemon-global setting)", path)
+	}
+
+	if pc.Files == nil {
+		pc.Files = make(map[string]*FileConfig)
+	}
+
+	projRoot := ProjectRoot(path, configNames)
+
+	for name, fc := range pc.Files {
+		fc.Name = name
+		if fc.Render == "" {
+			fc.Render = "native"
+		}
+		if fc.Mode == 0 {
+			fc.Mode = 0o600
+		}
+		if fc.Template != "" {
+			fc.Template = ResolveProjectPath(fc.Template, projRoot)
+		}
+		if fc.Symlink != "" {
+			fc.Symlink = ResolveProjectPath(fc.Symlink, projRoot)
+		}
+	}
+
+	return pc.Files, nil
 }

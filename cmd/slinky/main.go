@@ -1,14 +1,18 @@
+// Package main is the CLI entry point for slinky.
 package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 )
 
 var (
@@ -36,14 +40,20 @@ func main() {
 
 	root.AddGroup(
 		&cobra.Group{ID: "daemon", Title: "Daemon:"},
+		&cobra.Group{ID: "context", Title: "Context:"},
+		&cobra.Group{ID: "service", Title: "Service:"},
 		&cobra.Group{ID: "debug", Title: "Debug:"},
 	)
 
 	root.AddCommand(startCmd())
 	root.AddCommand(stopCmd())
 	root.AddCommand(statusCmd())
+	root.AddCommand(activateCmd())
+	root.AddCommand(deactivateCmd())
+	root.AddCommand(serviceCmd())
 	root.AddCommand(renderCmd())
 	root.AddCommand(cacheCmd())
+	root.AddCommand(cfgCmd())
 
 	if err := fang.Execute(context.Background(), root); err != nil {
 		os.Exit(1)
@@ -62,23 +72,64 @@ func setupLogging() {
 	})))
 }
 
-func pidFilePath() string {
-	stateDir := os.Getenv("XDG_STATE_HOME")
-	if stateDir == "" {
+// stateDir returns the slinky state directory under XDG_STATE_HOME.
+func stateDir() string {
+	base := os.Getenv("XDG_STATE_HOME")
+	if base == "" {
 		home, _ := os.UserHomeDir()
-		stateDir = filepath.Join(home, ".local", "state")
+		base = filepath.Join(home, ".local", "state")
 	}
-	return filepath.Join(stateDir, "slinky", "pid")
+	return filepath.Join(base, "slinky")
 }
 
-func writePIDFile() error {
+func pidFilePath() string {
+	return filepath.Join(stateDir(), "pid")
+}
+
+func logFilePath() string {
+	return filepath.Join(stateDir(), "daemon.log")
+}
+
+// readPID reads and parses the PID file.
+func readPID() (int, error) {
+	data, err := os.ReadFile(pidFilePath())
+	if err != nil {
+		return 0, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("parsing PID: %w", err)
+	}
+	return pid, nil
+}
+
+// acquirePIDLock opens the PID file with an exclusive flock. Returns the
+// locked file (caller must defer close+remove) or an error if another
+// daemon holds the lock.
+func acquirePIDLock() (*os.File, error) {
 	path := pidFilePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
 	}
-	return os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0o644)
-}
-
-func removePIDFile() {
-	_ = os.Remove(pidFilePath())
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("opening PID file: %w", err)
+	}
+	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("another slinky daemon is running (could not lock %s)", path)
+	}
+	if err := f.Truncate(0); err != nil {
+		f.Close()
+		return nil, err
+	}
+	if _, err := f.WriteString(strconv.Itoa(os.Getpid())); err != nil {
+		f.Close()
+		return nil, err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
 }
