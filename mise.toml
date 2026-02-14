@@ -1,0 +1,79 @@
+[tools]
+go = "1.26"
+golangci-lint = "2.10"
+prek = "0.3"
+
+[env]
+CGO_ENABLED = "0"
+
+[tasks.fmt]
+description = "Run formatter"
+sources = [
+  "**/*.go",
+  "go.mod",
+  "go.sum",
+]
+run = "golangci-lint fmt"
+
+[tasks.fix]
+description = "Run go fix"
+sources = [
+  "**/*.go",
+  "go.mod",
+  "go.sum",
+]
+run = [
+  "go vet -fix ./...",
+  "go fix ./...",
+  "mise run fmt",
+]
+
+[tasks.lint]
+description = "Run linter"
+depends = ["fix"]
+sources = [
+  "**/*.go",
+  "go.mod",
+  "go.sum",
+]
+run = "golangci-lint run"
+
+[tasks.test]
+description = "Run all tests"
+sources = [
+  "**/*.go",
+  "go.mod",
+  "go.sum",
+]
+run = "go test -race ./..."
+
+[tasks.check]
+description = "Run tests, lint, format, and fix"
+sources = [
+  "**/*.go",
+  "go.mod",
+  "go.sum",
+]
+run = [
+  "mise run lint",
+  "mise run test",
+]
+
+[tasks.clean]
+description = "Remove build artifacts"
+run = ["rm -rf build/"]
+
+[tasks.build]
+description = "Build the slinky binary"
+sources = [
+  "**/*.go",
+  "go.mod",
+  "go.sum",
+]
+outputs = ["build/*"]
+run = "go build -race -v -o build/slinky ./cmd/slinky"
+
+[tasks.install]
+description = "Install slinky to GOPATH/bin"
+depends = ["build"]
+run = "go install ./cmd/slinky"
