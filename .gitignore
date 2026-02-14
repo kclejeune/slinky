@@ -1,0 +1,7 @@
+/build/
+/slinky
+*.exe
+*.test
+*.out
+.DS_Store
+.slinky/
