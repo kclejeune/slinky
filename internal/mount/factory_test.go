@@ -66,6 +66,24 @@ func TestNewBackendTmpfs(t *testing.T) {
 	}
 }
 
+func TestNewBackendFifo(t *testing.T) {
+	cfg := &config.Config{
+		Settings: config.Settings{
+			Mount: config.MountConfig{Backend: config.BackendFIFO, MountPoint: "/tmp/test"},
+			Cache: config.CacheConfig{Cipher: config.CipherAgeEphemeral, DefaultTTL: config.Duration(5 * time.Minute)},
+		},
+		Files: make(map[string]*config.FileConfig),
+	}
+
+	b, err := NewBackend(cfg, testResolver(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Name() != "fifo" {
+		t.Errorf("Name() = %q, want %q", b.Name(), "fifo")
+	}
+}
+
 func TestNewBackendInvalid(t *testing.T) {
 	cfg := &config.Config{
 		Settings: config.Settings{

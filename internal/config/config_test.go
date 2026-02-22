@@ -107,8 +107,11 @@ func TestBackendTypeUnmarshalText(t *testing.T) {
 		t.Errorf("got %q, want %q", b, BackendTmpfs)
 	}
 
-	if err := b.UnmarshalText([]byte("fifo")); err == nil {
-		t.Error("expected error for unimplemented 'fifo' backend")
+	if err := b.UnmarshalText([]byte("fifo")); err != nil {
+		t.Errorf("unexpected error for 'fifo': %v", err)
+	}
+	if b != BackendFIFO {
+		t.Errorf("got %q, want %q", b, BackendFIFO)
 	}
 
 	if err := b.UnmarshalText([]byte("invalid")); err == nil {
