@@ -20,6 +20,7 @@ import (
 
 	"github.com/kclejeune/slinky/internal/config"
 	slinkycontext "github.com/kclejeune/slinky/internal/context"
+	"github.com/kclejeune/slinky/internal/fsutil"
 	"github.com/kclejeune/slinky/internal/resolver"
 )
 
@@ -115,7 +116,6 @@ func (b *Backend) Reconfigure() error {
 	return nil
 }
 
-// Name returns the backend name for logging.
 func (b *Backend) Name() string {
 	return "tmpfs"
 }
@@ -123,12 +123,7 @@ func (b *Backend) Name() string {
 // effectiveFileNames returns the current set of files to render.
 func (b *Backend) effectiveFileNames() map[string]*config.FileConfig {
 	if b.ctxMgr != nil {
-		eff := b.ctxMgr.Effective()
-		files := make(map[string]*config.FileConfig, len(eff))
-		for name, ef := range eff {
-			files[name] = ef.FileConfig
-		}
-		return files
+		return b.ctxMgr.EffectiveFileConfigs()
 	}
 	return b.cfg.Files
 }
@@ -169,7 +164,7 @@ func (b *Backend) reconcileFiles() error {
 		}
 	}
 
-	b.cleanEmptyDirs()
+	fsutil.CleanEmptyDirs(b.mountPoint)
 
 	// Render all current effective files.
 	for name, fc := range files {
@@ -257,7 +252,7 @@ func (b *Backend) scrubAll() {
 		}
 	}
 
-	b.cleanEmptyDirs()
+	fsutil.CleanEmptyDirs(b.mountPoint)
 }
 
 // scrubFile zeros the file content and removes it.
@@ -287,25 +282,6 @@ func scrubFile(path string) error {
 	f.Close()
 
 	return os.Remove(path)
-}
-
-// cleanEmptyDirs removes empty subdirectories under the mount point (bottom-up).
-func (b *Backend) cleanEmptyDirs() {
-	var dirs []string
-	_ = filepath.Walk(b.mountPoint, func(path string, info os.FileInfo, err error) error {
-		if err != nil || path == b.mountPoint {
-			return nil
-		}
-		if info.IsDir() {
-			dirs = append(dirs, path)
-		}
-		return nil
-	})
-
-	slices.Reverse(dirs)
-	for _, dir := range dirs {
-		os.Remove(dir) // Only succeeds if empty.
-	}
 }
 
 // refreshInterval returns half the minimum TTL, clamped to at least 1s.
@@ -348,7 +324,6 @@ func (m *dirMounter) Unmount() error {
 	return os.RemoveAll(m.path)
 }
 
-// FileNames returns the rendered file names.
 func (b *Backend) FileNames() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()

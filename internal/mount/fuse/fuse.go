@@ -19,6 +19,7 @@ import (
 
 	gofuse "github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
+	"golang.org/x/sys/unix"
 
 	"github.com/kclejeune/slinky/internal/config"
 	slinkycontext "github.com/kclejeune/slinky/internal/context"
@@ -96,7 +97,6 @@ func (b *Backend) Mount(ctx context.Context) error {
 	return nil
 }
 
-// Unmount unmounts the FUSE filesystem.
 func (b *Backend) Unmount() error {
 	if b.server != nil {
 		return b.server.Unmount()
@@ -109,31 +109,17 @@ func (b *Backend) Reconfigure() error {
 	return nil
 }
 
-// Name returns the backend name.
 func (b *Backend) Name() string {
 	return "fuse"
 }
 
 // effectiveFiles returns the current file set, preferring ContextManager
 // if available, falling back to cfg.Files.
-func effectiveFiles(cfg *config.Config, ctxMgr *slinkycontext.Manager) map[string]*effectiveEntry {
-	result := make(map[string]*effectiveEntry)
-
+func effectiveFiles(cfg *config.Config, ctxMgr *slinkycontext.Manager) map[string]*config.FileConfig {
 	if ctxMgr != nil {
-		for name, ef := range ctxMgr.Effective() {
-			result[name] = &effectiveEntry{fc: ef.FileConfig}
-		}
-		return result
+		return ctxMgr.EffectiveFileConfigs()
 	}
-
-	for name, fc := range cfg.Files {
-		result[name] = &effectiveEntry{fc: fc}
-	}
-	return result
-}
-
-type effectiveEntry struct {
-	fc *config.FileConfig
+	return cfg.Files
 }
 
 // fuseRoot is the root inode of the FUSE filesystem.
@@ -151,7 +137,7 @@ var _ gofuse.NodeReaddirer = (*fuseRoot)(nil)
 var _ gofuse.NodeGetattrer = (*fuseRoot)(nil)
 
 func (r *fuseRoot) Getattr(ctx context.Context, fh gofuse.FileHandle, out *fuse.AttrOut) syscall.Errno {
-	out.Mode = 0o755 | syscall.S_IFDIR
+	out.Mode = 0o755 | unix.S_IFDIR
 	out.Uid = currentUID
 	out.Gid = currentGID
 	return 0
@@ -165,14 +151,14 @@ func (r *fuseRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) 
 		child := r.NewInode(ctx,
 			&fuseFile{
 				name:     name,
-				mode:     entry.fc.Mode,
+				mode:     entry.Mode,
 				resolver: r.resolver,
 			},
-			gofuse.StableAttr{Mode: syscall.S_IFREG},
+			gofuse.StableAttr{Mode: unix.S_IFREG},
 		)
 		out.Uid = currentUID
 		out.Gid = currentGID
-		out.Mode = entry.fc.Mode
+		out.Mode = entry.Mode
 		return child, 0
 	}
 
@@ -186,11 +172,11 @@ func (r *fuseRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) 
 					ctxMgr:   r.ctxMgr,
 					resolver: r.resolver,
 				},
-				gofuse.StableAttr{Mode: syscall.S_IFDIR},
+				gofuse.StableAttr{Mode: unix.S_IFDIR},
 			)
 			out.Uid = currentUID
 			out.Gid = currentGID
-			out.Mode = 0o755 | syscall.S_IFDIR
+			out.Mode = 0o755 | unix.S_IFDIR
 			return child, 0
 		}
 	}
@@ -216,12 +202,12 @@ func (r *fuseRoot) Readdir(ctx context.Context) (gofuse.DirStream, syscall.Errno
 		if len(parts) == 1 {
 			entries = append(entries, fuse.DirEntry{
 				Name: top,
-				Mode: entry.fc.Mode,
+				Mode: entry.Mode,
 			})
 		} else {
 			entries = append(entries, fuse.DirEntry{
 				Name: top,
-				Mode: syscall.S_IFDIR | 0o755,
+				Mode: unix.S_IFDIR | 0o755,
 			})
 		}
 	}
@@ -244,7 +230,7 @@ var _ gofuse.NodeLookuper = (*fuseDir)(nil)
 var _ gofuse.NodeReaddirer = (*fuseDir)(nil)
 
 func (d *fuseDir) Getattr(ctx context.Context, fh gofuse.FileHandle, out *fuse.AttrOut) syscall.Errno {
-	out.Mode = 0o755 | syscall.S_IFDIR
+	out.Mode = 0o755 | unix.S_IFDIR
 	out.Uid = currentUID
 	out.Gid = currentGID
 	return 0
@@ -258,14 +244,14 @@ func (d *fuseDir) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (
 		child := d.NewInode(ctx,
 			&fuseFile{
 				name:     fullPath,
-				mode:     entry.fc.Mode,
+				mode:     entry.Mode,
 				resolver: d.resolver,
 			},
-			gofuse.StableAttr{Mode: syscall.S_IFREG},
+			gofuse.StableAttr{Mode: unix.S_IFREG},
 		)
 		out.Uid = currentUID
 		out.Gid = currentGID
-		out.Mode = entry.fc.Mode
+		out.Mode = entry.Mode
 		return child, 0
 	}
 
@@ -279,11 +265,11 @@ func (d *fuseDir) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (
 					ctxMgr:   d.ctxMgr,
 					resolver: d.resolver,
 				},
-				gofuse.StableAttr{Mode: syscall.S_IFDIR},
+				gofuse.StableAttr{Mode: unix.S_IFDIR},
 			)
 			out.Uid = currentUID
 			out.Gid = currentGID
-			out.Mode = 0o755 | syscall.S_IFDIR
+			out.Mode = 0o755 | unix.S_IFDIR
 			return child, 0
 		}
 	}
@@ -312,12 +298,12 @@ func (d *fuseDir) Readdir(ctx context.Context) (gofuse.DirStream, syscall.Errno)
 		if len(parts) == 1 {
 			entries = append(entries, fuse.DirEntry{
 				Name: top,
-				Mode: entry.fc.Mode,
+				Mode: entry.Mode,
 			})
 		} else {
 			entries = append(entries, fuse.DirEntry{
 				Name: top,
-				Mode: syscall.S_IFDIR | 0o755,
+				Mode: unix.S_IFDIR | 0o755,
 			})
 		}
 	}
@@ -371,9 +357,7 @@ func (h *secretHandle) Read(ctx context.Context, dest []byte, off int64) (fuse.R
 }
 
 func (h *secretHandle) Release(ctx context.Context) syscall.Errno {
-	for i := range h.content {
-		h.content[i] = 0
-	}
+	clear(h.content)
 	h.content = nil
 	return 0
 }
@@ -407,18 +391,18 @@ func unmountStale(mountPoint string) {
 // (stat fails with something other than ENOENT) or an active mount point
 // (device ID differs from parent directory).
 func isMountedOrStale(path string) bool {
-	var st syscall.Stat_t
-	err := syscall.Stat(path, &st)
+	var st unix.Stat_t
+	err := unix.Stat(path, &st)
 	if err != nil {
 		// ENOENT means the path doesn't exist — not mounted.
 		// Any other error (ENXIO, EIO, etc.) indicates a stale mount.
-		return err != syscall.ENOENT
+		return err != unix.ENOENT
 	}
 
 	// Stat succeeded — check if it's a mount point by comparing device IDs
 	// with the parent directory.
-	var parentSt syscall.Stat_t
-	if err := syscall.Stat(filepath.Dir(path), &parentSt); err != nil {
+	var parentSt unix.Stat_t
+	if err := unix.Stat(filepath.Dir(path), &parentSt); err != nil {
 		return false
 	}
 	return st.Dev != parentSt.Dev

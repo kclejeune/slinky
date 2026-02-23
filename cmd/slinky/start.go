@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 
 	"github.com/kclejeune/slinky/internal/cache"
 	"github.com/kclejeune/slinky/internal/cipher"
@@ -121,7 +122,7 @@ func startCmd() *cobra.Command {
 			defer cancel()
 
 			sigCh := make(chan os.Signal, 1)
-			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+			signal.Notify(sigCh, unix.SIGINT, unix.SIGTERM)
 			go func() {
 				sig := <-sigCh
 				slog.Info("received signal, shutting down", "signal", sig)
@@ -162,7 +163,7 @@ func stopCmd() *cobra.Command {
 				return fmt.Errorf("finding process %d: %w", pid, err)
 			}
 
-			if err := proc.Signal(syscall.SIGTERM); err != nil {
+			if err := proc.Signal(unix.SIGTERM); err != nil {
 				return fmt.Errorf("sending SIGTERM to %d: %w", pid, err)
 			}
 
@@ -183,7 +184,7 @@ func daemonizeStart(mountBackend string) error {
 	if pid, err := readPID(); err == nil {
 		proc, err := os.FindProcess(pid)
 		if err == nil {
-			if err := proc.Signal(syscall.Signal(0)); err == nil {
+			if err := proc.Signal(unix.Signal(0)); err == nil {
 				return fmt.Errorf("slinky is already running (pid %d)", pid)
 			}
 		}

@@ -62,6 +62,8 @@ func (ef *EffectiveFile) EnvLookupFunc() render.EnvLookup {
 	}
 }
 
+// Manager tracks directory-scoped activations and computes the merged
+// effective file set. Lock ordering: activateMu must be acquired before mu.
 type Manager struct {
 	activateMu  sync.Mutex   // serializes Activate/Deactivate calls
 	mu          sync.RWMutex // protects effective/activations for concurrent reads
@@ -97,6 +99,16 @@ func (m *Manager) Effective() map[string]*EffectiveFile {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return maps.Clone(m.effective)
+}
+
+// EffectiveFileConfigs returns just the FileConfig for each effective file.
+func (m *Manager) EffectiveFileConfigs() map[string]*config.FileConfig {
+	eff := m.Effective()
+	files := make(map[string]*config.FileConfig, len(eff))
+	for name, ef := range eff {
+		files[name] = ef.FileConfig
+	}
+	return files
 }
 
 func (m *Manager) Layers() []*Layer {

@@ -126,7 +126,8 @@ func (s *Server) handleConn(conn net.Conn) {
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 	scanner := bufio.NewScanner(conn)
-	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+	const maxRequestSize = 1 << 20 // 1MB request payload limit
+	scanner.Buffer(make([]byte, 0, 64*1024), maxRequestSize)
 	if !scanner.Scan() {
 		return
 	}
@@ -203,15 +204,7 @@ func effectiveFileChanged(prev, cur *slinkycontext.EffectiveFile) bool {
 	if prev.FileConfig != cur.FileConfig {
 		return true // different config (different layer or reload)
 	}
-	if len(prev.Env) != len(cur.Env) {
-		return true
-	}
-	for k, v := range prev.Env {
-		if cur.Env[k] != v {
-			return true
-		}
-	}
-	return false
+	return !maps.Equal(prev.Env, cur.Env)
 }
 
 func (s *Server) handleDeactivate(conn net.Conn, req Request) {

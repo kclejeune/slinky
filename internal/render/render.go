@@ -46,17 +46,29 @@ func NewRenderer(fc *config.FileConfig) TemplateRenderer {
 // NativeRenderer uses Go's text/template with sprout functions and
 // custom builtins: env, envDefault, file, exec.
 // Parsed template texts are cached so that repeated renders (e.g. FUSE
-// open()) skip disk I/O and re-parsing.
+// open()) skip disk I/O and re-parsing. The cache is invalidated when
+// the template file's mtime changes.
 type NativeRenderer struct {
 	mu    sync.RWMutex
-	cache map[string]string // tplPath → template text
+	cache map[string]cachedTemplate // tplPath → cached entry
+}
+
+type cachedTemplate struct {
+	text  string
+	mtime time.Time
 }
 
 func (r *NativeRenderer) loadTemplate(tplPath string) (string, error) {
+	info, err := os.Stat(tplPath)
+	if err != nil {
+		return "", fmt.Errorf("reading template %q: %w", tplPath, err)
+	}
+	mtime := info.ModTime()
+
 	r.mu.RLock()
-	if text, ok := r.cache[tplPath]; ok {
+	if cached, ok := r.cache[tplPath]; ok && cached.mtime.Equal(mtime) {
 		r.mu.RUnlock()
-		return text, nil
+		return cached.text, nil
 	}
 	r.mu.RUnlock()
 
@@ -68,9 +80,9 @@ func (r *NativeRenderer) loadTemplate(tplPath string) (string, error) {
 
 	r.mu.Lock()
 	if r.cache == nil {
-		r.cache = make(map[string]string)
+		r.cache = make(map[string]cachedTemplate)
 	}
-	r.cache[tplPath] = text
+	r.cache[tplPath] = cachedTemplate{text: text, mtime: mtime}
 	r.mu.Unlock()
 
 	return text, nil
@@ -214,7 +226,11 @@ func resolveCommand(name string, envOverrides map[string]string) (string, error)
 	} else {
 		env = mergeEnv(os.Environ(), envOverrides)
 	}
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		slog.Warn("resolveCommand: Getwd failed, falling back to /", "error", err)
+		cwd = "/"
+	}
 	return interp.LookPathDir(cwd, expand.ListEnviron(env...), name)
 }
 

@@ -17,7 +17,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"time"
 
@@ -25,6 +24,7 @@ import (
 
 	"github.com/kclejeune/slinky/internal/config"
 	slinkycontext "github.com/kclejeune/slinky/internal/context"
+	"github.com/kclejeune/slinky/internal/fsutil"
 	"github.com/kclejeune/slinky/internal/resolver"
 )
 
@@ -96,19 +96,13 @@ func (b *Backend) Reconfigure() error {
 	return nil
 }
 
-// Name returns the backend identifier.
 func (b *Backend) Name() string {
 	return "fifo"
 }
 
 func (b *Backend) effectiveFiles() map[string]*config.FileConfig {
 	if b.ctxMgr != nil {
-		eff := b.ctxMgr.Effective()
-		files := make(map[string]*config.FileConfig, len(eff))
-		for name, ef := range eff {
-			files[name] = ef.FileConfig
-		}
-		return files
+		return b.ctxMgr.EffectiveFileConfigs()
 	}
 	b.cfgMu.RLock()
 	snap := make(map[string]*config.FileConfig, len(b.cfg.Files))
@@ -140,7 +134,7 @@ func (b *Backend) reconcileFIFOs(ctx context.Context) {
 		}
 	}
 
-	b.cleanEmptyDirs()
+	fsutil.CleanEmptyDirs(b.mountPoint)
 
 	for name, fc := range files {
 		if _, exists := b.fifos[name]; exists {
@@ -235,27 +229,10 @@ func (b *Backend) teardown() {
 		delete(b.fifos, name)
 	}
 
-	b.cleanEmptyDirs()
+	fsutil.CleanEmptyDirs(b.mountPoint)
 
 	if err := os.Remove(b.mountPoint); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		slog.Debug("fifo: mount point not removed", "error", err)
-	}
-}
-
-func (b *Backend) cleanEmptyDirs() {
-	var dirs []string
-	_ = filepath.Walk(b.mountPoint, func(path string, info os.FileInfo, err error) error {
-		if err != nil || path == b.mountPoint {
-			return nil
-		}
-		if info.IsDir() {
-			dirs = append(dirs, path)
-		}
-		return nil
-	})
-	slices.Reverse(dirs)
-	for _, dir := range dirs {
-		os.Remove(dir)
 	}
 }
 

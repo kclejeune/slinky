@@ -201,8 +201,87 @@ file set with which layer contributes each file (deepest wins).`,
 
 	cmd.AddCommand(cfgInitCmd())
 	cmd.AddCommand(cfgEditCmd())
+	cmd.AddCommand(cfgValidateCmd())
 	cmd.AddCommand(hookCmd())
 
+	return cmd
+}
+
+func cfgValidateCmd() *cobra.Command {
+	var dir string
+
+	cmd := &cobra.Command{
+		Use:   "validate",
+		Short: "Validate config files without starting the daemon",
+		Long: `Check global and project config files for errors.
+
+Validates TOML syntax, required fields, template paths, render modes,
+and template parsing. Exits non-zero if any errors are found.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dir == "" {
+				var err error
+				dir, err = os.Getwd()
+				if err != nil {
+					return fmt.Errorf("getting current directory: %w", err)
+				}
+			}
+
+			globalCfg, err := config.Load(cfgFile)
+			if err != nil {
+				return fmt.Errorf("global config: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "global config: ok\n")
+
+			configNames := slinkycontext.ResolveProjectConfigNames(globalCfg)
+			layers := slinkycontext.DiscoverLayers(dir, configNames)
+
+			var errs []error
+			for _, layerPath := range layers {
+				files, err := config.LoadProjectConfig(layerPath, configNames)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("%s: %w", layerPath, err))
+					continue
+				}
+				for name, fc := range files {
+					if err := fc.Validate(name); err != nil {
+						errs = append(errs, fmt.Errorf("%s: %w", layerPath, err))
+					}
+				}
+				if len(files) == 0 {
+					fmt.Fprintf(os.Stderr, "%s: ok (no files)\n", layerPath)
+				} else {
+					fmt.Fprintf(os.Stderr, "%s: ok (%d files)\n", layerPath, len(files))
+				}
+			}
+
+			// Probe-render global files to catch template syntax errors.
+			ageCipher, cipherErr := cipher.NewAgeEphemeral()
+			if cipherErr != nil {
+				return fmt.Errorf("initializing cipher: %w", cipherErr)
+			}
+			secretCache := cache.New(ageCipher)
+			defer secretCache.Stop()
+
+			secretResolver := resolver.New(globalCfg, secretCache, nil)
+			for name := range globalCfg.Files {
+				if _, renderErr := secretResolver.RenderOnly(name); renderErr != nil {
+					errs = append(errs, fmt.Errorf("render %q: %w", name, renderErr))
+				}
+			}
+
+			if len(errs) > 0 {
+				for _, e := range errs {
+					fmt.Fprintf(os.Stderr, "error: %v\n", e)
+				}
+				return fmt.Errorf("%d validation error(s)", len(errs))
+			}
+
+			fmt.Fprintf(os.Stderr, "all configs valid\n")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&dir, "directory", "d", "", "directory to resolve project configs from (default: current directory)")
 	return cmd
 }
 
