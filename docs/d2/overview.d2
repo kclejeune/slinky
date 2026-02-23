@@ -1,0 +1,54 @@
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+client: Slinky Client Context {
+  config: "Config Context" {
+    global: "Global Config"
+    project: "Project Config"
+  }
+  env: "Secret Providers" {
+    fnox: "mise + fnox"
+    vault: vault
+    oprun: "op run"
+    sops: "sops exec"
+  }
+}
+links: "Linked Files" {
+  netrc: "~/.netrc"
+  npmrc: "~/.npmrc"
+  docker: "~/.docker/config.json"
+}
+app: Applications
+
+daemon: "Slinky Daemon" {
+  ctx: "Context Manager"
+  mount: "Mount Backend" {
+    FUSE
+    tmpfs
+    FIFO
+  }
+  symlinks: "Symlink Manager"
+  resolver: "Secret Resolver" {
+    cache: "Encrypted Cache"
+    renderer: "Template Renderer"
+    cache -> renderer: "cache miss"
+  }
+
+  ctx -> symlinks: reconcile
+  ctx -> mount: reconfigure
+  mount -> resolver: resolve
+  resolver -> mount: "plaintext bytes"
+}
+
+wire: "Daemon Protocol Message" {
+  shape: page
+}
+client.env -> wire: "secret env variables"
+client.config -> wire: "file templates + target links"
+wire -> daemon.ctx: "activate: {dir, env, pid}"
+daemon.symlinks -> links: "creates symlinks"
+links -> daemon.mount: "OS follows symlink"
+app -> links: "read()"

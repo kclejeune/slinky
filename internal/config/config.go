@@ -107,7 +107,7 @@ type SymlinkConfig struct {
 	// symlink path. ConflictError (default) returns an error; ConflictBackup
 	// renames the existing file with BackupExtension appended.
 	Conflict ConflictMode `toml:"conflict"`
-	// BackupExtension is the suffix appended to backed-up files (default ".bkp").
+	// BackupExtension is the suffix appended to backed-up files (default "~").
 	// Only used when Conflict is ConflictBackup.
 	BackupExtension string `toml:"backup_extension"`
 }
@@ -170,7 +170,7 @@ func Load(path string) (*Config, error) {
 		cfg.Settings.Symlink.Conflict = ConflictError
 	}
 	if cfg.Settings.Symlink.BackupExtension == "" {
-		cfg.Settings.Symlink.BackupExtension = ".bkp"
+		cfg.Settings.Symlink.BackupExtension = "~"
 	}
 
 	for _, fc := range cfg.Files {

@@ -19,6 +19,11 @@ repos:
     rev: v2.10.1
     hooks:
       - id: golangci-lint-fmt
+  - repo: "https://github.com/terrastruct/d2"
+    rev: v0.7.1
+    hooks:
+      - id: d2
+      - id: d2-fmt
   # - repo: https://github.com/thlorenz/doctoc
   #   rev: v2.3.0
   #   hooks:

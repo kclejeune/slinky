@@ -38,7 +38,7 @@ func TestDaemonLifecycleIntegration(t *testing.T) {
 				Cipher:     config.CipherEphemeral,
 				DefaultTTL: config.Duration(5 * time.Minute),
 			},
-			Symlink: config.SymlinkConfig{Conflict: config.ConflictError, BackupExtension: ".bkp"},
+			Symlink: config.SymlinkConfig{Conflict: config.ConflictError, BackupExtension: "~"},
 		},
 		Files: make(map[string]*config.FileConfig),
 	}

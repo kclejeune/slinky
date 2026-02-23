@@ -9,7 +9,7 @@ import (
 )
 
 func defaultSymlinkCfg() config.SymlinkConfig {
-	return config.SymlinkConfig{Conflict: config.ConflictError, BackupExtension: ".bkp"}
+	return config.SymlinkConfig{Conflict: config.ConflictError, BackupExtension: "~"}
 }
 
 func defaultConfig(mountPoint string, files map[string]*config.FileConfig) *config.Config {
@@ -111,7 +111,7 @@ func TestSetupExistingFileErrorMode(t *testing.T) {
 
 	cfg := &config.Config{
 		Settings: config.Settings{
-			Symlink: config.SymlinkConfig{Conflict: config.ConflictError, BackupExtension: ".bkp"},
+			Symlink: config.SymlinkConfig{Conflict: config.ConflictError, BackupExtension: "~"},
 		},
 		Files: map[string]*config.FileConfig{
 			"netrc": {
@@ -152,7 +152,7 @@ func TestSetupExistingFileBackupMode(t *testing.T) {
 
 	cfg := &config.Config{
 		Settings: config.Settings{
-			Symlink: config.SymlinkConfig{Conflict: config.ConflictBackup, BackupExtension: ".bkp"},
+			Symlink: config.SymlinkConfig{Conflict: config.ConflictBackup, BackupExtension: "~"},
 		},
 		Files: map[string]*config.FileConfig{
 			"netrc": {
@@ -174,7 +174,7 @@ func TestSetupExistingFileBackupMode(t *testing.T) {
 		t.Error("expected symlink, got regular file")
 	}
 
-	backupPath := linkPath + ".bkp"
+	backupPath := linkPath + "~"
 	data, err := os.ReadFile(backupPath)
 	if err != nil {
 		t.Fatalf("backup file should exist at %q: %v", backupPath, err)
@@ -202,7 +202,7 @@ func TestCleanupRestoresBackup(t *testing.T) {
 
 	cfg := &config.Config{
 		Settings: config.Settings{
-			Symlink: config.SymlinkConfig{Conflict: config.ConflictBackup, BackupExtension: ".bkp"},
+			Symlink: config.SymlinkConfig{Conflict: config.ConflictBackup, BackupExtension: "~"},
 		},
 		Files: map[string]*config.FileConfig{
 			"netrc": {
@@ -225,7 +225,7 @@ func TestCleanupRestoresBackup(t *testing.T) {
 	}
 
 	// The backup file should still exist.
-	data, err := os.ReadFile(linkPath + ".bkp")
+	data, err := os.ReadFile(linkPath + "~")
 	if err != nil {
 		t.Fatalf("backup file should still exist: %v", err)
 	}

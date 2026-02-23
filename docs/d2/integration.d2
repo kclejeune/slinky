@@ -1,0 +1,35 @@
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+inject: "Secret Providers" {
+  grid-rows: 1
+  fnox: "mise + fnox"
+  vault: "vault"
+  oprun: "op run"
+  sops: "sops exec"
+}
+
+slinky: "Slinky" {
+  render: "template rendering"
+  cache: "encrypted cache"
+  mount: "FUSE / tmpfs / FIFO secret mount"
+  render -> cache -> mount
+}
+files: "Linked Secrets" {
+  netrc: "~/.netrc"
+  npmrc: "~/.npmrc"
+  docker: "~/.docker/config.json"
+}
+tools: "Secret Consumers" {
+  git
+  npm
+  docker
+  kubectl
+}
+
+inject -> slinky: "env vars (per-directory context)"
+slinky -> files: "virtual files via symlinks"
+files -> tools: "standard file reads"

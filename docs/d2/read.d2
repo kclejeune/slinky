@@ -1,0 +1,42 @@
+vars: {
+  d2-config: {
+    layout-engine: elk
+    # Terminal theme code
+    theme-id: 300
+  }
+}
+
+direction: right
+
+shape: sequence_diagram
+
+app: Application
+mount: "Mount Backend"
+resolver: SecretResolver
+ctx: ContextManager
+cache: "Encrypted Cache"
+renderer: "Template Renderer"
+
+app -> mount: "read(~/.netrc)"
+mount -> resolver: "Resolve(name)"
+resolver -> ctx: "Effective(name)"
+ctx -> resolver: "FileConfig + env"
+resolver -> cache: "Get(cacheKey)"
+
+"alt: fresh (age < TTL)": {
+  cache -> resolver: "decrypt → plaintext"
+}
+
+"alt: stale (TTL ≤ age < 2×TTL)": {
+  cache -> resolver: "stale plaintext"
+  resolver -> resolver: "spawn async re-render"
+}
+
+"alt: miss": {
+  resolver -> renderer: "Render(template, env)"
+  renderer -> resolver: "plaintext"
+  resolver -> cache: "Encrypt + Set(key, ct)"
+}
+
+resolver -> mount: "plaintext bytes"
+mount -> app: "file content"

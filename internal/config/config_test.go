@@ -227,8 +227,8 @@ template = "` + tplFile + `"
 	if cfg.Settings.Symlink.Conflict != ConflictError {
 		t.Errorf("default conflict = %q, want %q", cfg.Settings.Symlink.Conflict, ConflictError)
 	}
-	if cfg.Settings.Symlink.BackupExtension != ".bkp" {
-		t.Errorf("default backup_extension = %q, want %q", cfg.Settings.Symlink.BackupExtension, ".bkp")
+	if cfg.Settings.Symlink.BackupExtension != "~" {
+		t.Errorf("default backup_extension = %q, want %q", cfg.Settings.Symlink.BackupExtension, "~")
 	}
 }
 

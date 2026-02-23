@@ -1,0 +1,48 @@
+vars: {
+  d2-config: {
+    layout-engine: elk
+    # Terminal theme code
+    theme-id: 300
+  }
+}
+
+direction: right
+
+shape: sequence_diagram
+
+shell: "Shell Hook"
+socket: "Control Socket"
+ctx: ContextManager
+trust: TrustStore
+syml: "Symlink Manager"
+mount: "Mount Backend"
+
+shell -> shell: "Getsid() → session PID"
+shell -> socket: "activate {dir, env, pid}"
+socket -> ctx: "Activate(dir, env, pid)"
+
+"ctx pre-checks": {
+  ctx -> ctx: "auto-deactivate prev dirs for PID"
+  ctx -> ctx: "DiscoverLayers(dir → HOME)"
+  ctx -> trust: "ReadAndVerifyPaths(paths)"
+}
+
+"opt: untrusted config": {
+  trust -> ctx: "ErrUntrusted"
+  ctx -> socket: "error: run slinky allow"
+  socket -> shell: "error"
+}
+
+"ctx merge": {
+  ctx -> ctx: "merge layers + recompute()"
+}
+
+"opt: conflict": {
+  ctx -> socket: "rollback + conflict error"
+  socket -> shell: "error"
+}
+
+ctx -> syml: "Reconcile(effective)"
+ctx -> mount: "Reconfigure(effective)"
+ctx -> socket: "file list"
+socket -> shell: "ok + file list"
