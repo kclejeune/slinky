@@ -73,7 +73,7 @@ sources = [
   "go.sum",
 ]
 outputs = ["build/*"]
-run = "go build -race -v -o build/slinky ./cmd/slinky"
+run = "go build -v -o build/slinky ./cmd/slinky"
 
 [tasks.install]
 description = "Install slinky to GOPATH/bin"

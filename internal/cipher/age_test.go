@@ -3,7 +3,20 @@ package cipher
 import (
 	"bytes"
 	"testing"
+
+	"github.com/zalando/go-keyring"
 )
+
+// requireKeyring skips the test if the OS credential store is unavailable
+// (e.g. no D-Bus Secret Service on a headless Linux CI runner).
+func requireKeyring(t *testing.T) {
+	t.Helper()
+	const probeAccount = "test-probe"
+	if err := keyring.Set(keyringService, probeAccount, "probe"); err != nil {
+		t.Skipf("keyring not available: %v", err)
+	}
+	_ = keyring.Delete(keyringService, probeAccount)
+}
 
 func assertRoundTrip(t *testing.T, c CacheCipher) {
 	t.Helper()
@@ -78,6 +91,7 @@ func TestAgeEphemeralName(t *testing.T) {
 }
 
 func TestAgeKeyringRoundTrip(t *testing.T) {
+	requireKeyring(t)
 	t.Cleanup(keyringDelete)
 
 	c, err := NewAgeKeyring()
@@ -88,6 +102,7 @@ func TestAgeKeyringRoundTrip(t *testing.T) {
 }
 
 func TestAgeKeyringPersistence(t *testing.T) {
+	requireKeyring(t)
 	t.Cleanup(keyringDelete)
 
 	c1, err := NewAgeKeyring()
@@ -117,6 +132,7 @@ func TestAgeKeyringPersistence(t *testing.T) {
 }
 
 func TestAgeKeyringName(t *testing.T) {
+	requireKeyring(t)
 	t.Cleanup(keyringDelete)
 
 	c, err := NewAgeKeyring()
