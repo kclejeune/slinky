@@ -19,7 +19,7 @@ func TestServerClientActivate(t *testing.T) {
 
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"netrc": {Name: "netrc", Render: "native", Template: "tpl"},
+			"netrc": {Render: "native", Template: "tpl"},
 		},
 	}
 
@@ -59,8 +59,8 @@ func TestServerClientStatus(t *testing.T) {
 
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"netrc": {Name: "netrc", Render: "native", Template: "tpl"},
-			"npmrc": {Name: "npmrc", Render: "native", Template: "tpl2"},
+			"netrc": {Render: "native", Template: "tpl"},
+			"npmrc": {Render: "native", Template: "tpl2"},
 		},
 	}
 

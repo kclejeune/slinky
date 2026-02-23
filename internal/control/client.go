@@ -81,3 +81,25 @@ func (c *Client) Status() (*StatusResponse, error) {
 		Type:    "status",
 	})
 }
+
+func (c *Client) CacheStats() (*CacheStatsResponse, error) {
+	return roundTrip[CacheStatsResponse](c.socketPath, Request{
+		Version: ProtocolVersion,
+		Type:    "cache_stats",
+	})
+}
+
+func (c *Client) CacheGet(key string) (*CacheGetResponse, error) {
+	return roundTrip[CacheGetResponse](c.socketPath, Request{
+		Version: ProtocolVersion,
+		Type:    "cache_get",
+		Key:     key,
+	})
+}
+
+func (c *Client) CacheClear() (*CacheClearResponse, error) {
+	return roundTrip[CacheClearResponse](c.socketPath, Request{
+		Version: ProtocolVersion,
+		Type:    "cache_clear",
+	})
+}

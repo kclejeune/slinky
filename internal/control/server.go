@@ -13,6 +13,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/kclejeune/slinky/internal/cache"
 	slinkycontext "github.com/kclejeune/slinky/internal/context"
 	"github.com/kclejeune/slinky/internal/render"
 )
@@ -20,6 +21,8 @@ import (
 type Server struct {
 	socketPath string
 	ctxMgr     *slinkycontext.Manager
+	configHash func() string // returns running config hash for staleness detection
+	cache      *cache.SecretCache
 	listener   net.Listener
 	sem        chan struct{} // concurrency limiter for handler goroutines
 }
@@ -33,6 +36,17 @@ func NewServer(socketPath string, ctxMgr *slinkycontext.Manager) *Server {
 		ctxMgr:     ctxMgr,
 		sem:        make(chan struct{}, 16),
 	}
+}
+
+// SetConfigHashFunc sets a function that returns the running config's hash.
+// Used for staleness detection by the activate command.
+func (s *Server) SetConfigHashFunc(fn func() string) {
+	s.configHash = fn
+}
+
+// SetCache sets the secret cache for cache-related control commands.
+func (s *Server) SetCache(c *cache.SecretCache) {
+	s.cache = c
 }
 
 func DefaultSocketPath() string {
@@ -150,6 +164,12 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.handleDeactivate(conn, req)
 	case "status":
 		s.handleStatus(conn)
+	case "cache_stats":
+		s.handleCacheStats(conn)
+	case "cache_get":
+		s.handleCacheGet(conn, req)
+	case "cache_clear":
+		s.handleCacheClear(conn)
 	default:
 		writeJSON(conn, ActivateResponse{Error: fmt.Sprintf("unknown request type: %q", req.Type)})
 	}
@@ -189,8 +209,6 @@ func (s *Server) handleActivate(conn net.Conn, req Request) {
 			warnings = append(warnings, msg)
 		}
 	}
-
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	slog.Info("context activated", "dir", req.Dir, "session", req.Session, "files", len(names), "warnings", len(warnings))
 	writeJSON(conn, ActivateResponse{OK: true, Files: names, Warnings: warnings})
@@ -237,13 +255,74 @@ func (s *Server) handleStatus(conn net.Conn) {
 
 	sessions := s.ctxMgr.Sessions()
 
+	var hash string
+	if s.configHash != nil {
+		hash = s.configHash()
+	}
+
 	writeJSON(conn, StatusResponse{
 		Running:    true,
+		ConfigHash: hash,
 		ActiveDirs: activeDirs,
 		Files:      files,
 		Layers:     layers,
 		Sessions:   sessions,
 	})
+}
+
+func (s *Server) handleCacheStats(conn net.Conn) {
+	if s.cache == nil {
+		writeJSON(conn, CacheStatsResponse{Entries: map[string]CacheEntryInfo{}})
+		return
+	}
+
+	stats := s.cache.Stats()
+	entries := make(map[string]CacheEntryInfo, len(stats))
+	for k, info := range stats {
+		entries[k] = CacheEntryInfo{
+			Age:   info.Age.Truncate(time.Second).String(),
+			TTL:   info.TTL.Truncate(time.Second).String(),
+			State: info.State,
+		}
+	}
+
+	writeJSON(conn, CacheStatsResponse{
+		OK:      true,
+		Entries: entries,
+		Cipher:  s.cache.CipherName(),
+	})
+}
+
+func (s *Server) handleCacheGet(conn net.Conn, req Request) {
+	if req.Key == "" {
+		writeJSON(conn, CacheGetResponse{Error: "missing key"})
+		return
+	}
+	if s.cache == nil {
+		writeJSON(conn, CacheGetResponse{Key: req.Key, Error: "cache not available"})
+		return
+	}
+
+	entry := s.cache.Get(req.Key)
+	if entry == nil {
+		writeJSON(conn, CacheGetResponse{Key: req.Key, Error: "not found"})
+		return
+	}
+
+	plaintext, err := s.cache.Decrypt(entry)
+	if err != nil {
+		writeJSON(conn, CacheGetResponse{Key: req.Key, Error: fmt.Sprintf("decrypt: %v", err)})
+		return
+	}
+
+	writeJSON(conn, CacheGetResponse{OK: true, Key: req.Key, Value: string(plaintext)})
+}
+
+func (s *Server) handleCacheClear(conn net.Conn) {
+	if s.cache != nil {
+		s.cache.Clear()
+	}
+	writeJSON(conn, CacheClearResponse{OK: true})
 }
 
 func writeJSON(conn net.Conn, v any) {
