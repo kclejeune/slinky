@@ -2,78 +2,90 @@ name: CI
 
 on:
   push:
-    branches: [main]
-    tags: ['v[0-9]*.[0-9]*.[0-9]*']
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+    branches:
+      - "main"
   pull_request:
-    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
-  check:
-    name: Checks (${{ matrix.goos }})
+  golangci:
     strategy:
       matrix:
-        include:
-          - os: macos-latest
-            goos: darwin
-          - os: ubuntu-latest
-            goos: linux
+        go:
+          - stable
+        os:
+          - ubuntu-latest
+          - macos-latest
+    name: lint
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
-      - uses: golangci/golangci-lint-action@v7
+          go-version: ${{ matrix.go }}
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.10
+          only-new-issues: true
+  test:
+    name: Test ${{ matrix.os }}
+    strategy:
+      matrix:
+        go:
+          - stable
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - name: Test
+        uses: robherley/go-test-action@v0
       - run: go test -race ./...
 
   build:
-    name: Build (slinky_${{ matrix.goos }}_${{ matrix.goarch }})
-    needs: [check]
+    name: build
+    needs:
+      - lint
+      - test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - {goos: linux, goarch: amd64}
-          - {goos: linux, goarch: arm64}
-          - {goos: darwin, goarch: amd64}
-          - {goos: darwin, goarch: arm64}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
         with:
-          go-version: "1.26"
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
-        run: |
-          mkdir -p dist
-          go build -v -ldflags="-s -w" -o dist/slinky ./cmd/slinky
-      - name: Package
-        run: tar czf dist/slinky_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz -C dist slinky
-      - name: Upload artifact
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@v4
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
         with:
-          name: slinky_${{ matrix.goos }}_${{ matrix.goarch }}
-          path: dist/slinky_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+          go-version: stable
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: build --clean --snapshot
 
   release:
     name: Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
         with:
-          merge-multiple: true
-          path: dist/
-      - uses: softprops/action-gh-release@v2
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
         with:
-          files: dist/*.tar.gz
-          generate_release_notes: true
+          go-version: stable
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
