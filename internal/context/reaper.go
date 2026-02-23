@@ -22,7 +22,6 @@ func NewReaper(mgr *Manager) *Reaper {
 	}
 }
 
-// Run blocks until ctx is cancelled, sweeping at the configured interval.
 func (r *Reaper) Run(ctx context.Context) {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()

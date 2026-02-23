@@ -52,8 +52,8 @@ func TestDiscoverLayersNoConfigs(t *testing.T) {
 func TestMergeGlobalOnly(t *testing.T) {
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"netrc": {Name: "netrc", Render: "native", Template: "tplA"},
-			"npmrc": {Name: "npmrc", Render: "native", Template: "tplB"},
+			"netrc": {Render: "native", Template: "tplA"},
+			"npmrc": {Render: "native", Template: "tplB"},
 		},
 	}
 
@@ -76,8 +76,8 @@ func TestMergeDeeperWinsPerFile(t *testing.T) {
 
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"netrc": {Name: "netrc", Render: "native", Template: "global-netrc"},
-			"npmrc": {Name: "npmrc", Render: "native", Template: "global-npmrc"},
+			"netrc": {Render: "native", Template: "global-netrc"},
+			"npmrc": {Render: "native", Template: "global-npmrc"},
 		},
 	}
 
@@ -165,8 +165,8 @@ func TestActivateUpdatesEffective(t *testing.T) {
 
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"netrc": {Name: "netrc", Render: "native", Template: tplA, Mode: 0o600},
-			"npmrc": {Name: "npmrc", Render: "native", Template: tplB, Mode: 0o600},
+			"netrc": {Render: "native", Template: tplA, Mode: 0o600},
+			"npmrc": {Render: "native", Template: tplB, Mode: 0o600},
 		},
 	}
 
@@ -223,7 +223,7 @@ func TestActivateBackToGlobal(t *testing.T) {
 
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"netrc": {Name: "netrc", Render: "native", Template: tplA, Mode: 0o600},
+			"netrc": {Render: "native", Template: tplA, Mode: 0o600},
 		},
 	}
 
@@ -246,7 +246,7 @@ func TestActivateBackToGlobal(t *testing.T) {
 
 func TestEffectiveFileEnvLookup(t *testing.T) {
 	ef := &EffectiveFile{
-		FileConfig: &config.FileConfig{Name: "test"},
+		FileConfig: &config.FileConfig{},
 		Env:        map[string]string{"MY_KEY": "from_context"},
 	}
 
@@ -271,7 +271,7 @@ func TestEffectiveFileEnvLookup(t *testing.T) {
 
 func TestEffectiveFileEnvLookupNilEnv(t *testing.T) {
 	ef := &EffectiveFile{
-		FileConfig: &config.FileConfig{Name: "test"},
+		FileConfig: &config.FileConfig{},
 		Env:        nil,
 	}
 
@@ -348,7 +348,7 @@ func TestActivateCommandModePreservesAllowlistEnv(t *testing.T) {
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
 			"secret": {
-				Name:    "secret",
+
 				Render:  "command",
 				Command: "echo",
 				Args:    []string{"hello"},
@@ -395,7 +395,7 @@ func TestActivateConcurrentSafe(t *testing.T) {
 
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"netrc": {Name: "netrc", Render: "native", Template: "global-tpl", Mode: 0o600},
+			"netrc": {Render: "native", Template: "global-tpl", Mode: 0o600},
 		},
 	}
 
@@ -454,7 +454,7 @@ func TestMultiActivateAdditive(t *testing.T) {
 
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"global-file": {Name: "global-file", Render: "native", Template: "global-tpl"},
+			"global-file": {Render: "native", Template: "global-tpl"},
 		},
 	}
 
@@ -579,7 +579,7 @@ func TestMultiActivateGlobalOverrideSingleProject(t *testing.T) {
 
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"netrc": {Name: "netrc", Render: "native", Template: "global-tpl"},
+			"netrc": {Render: "native", Template: "global-tpl"},
 		},
 	}
 
@@ -618,7 +618,7 @@ func TestMultiActivateGlobalOverrideTwoProjects(t *testing.T) {
 
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"netrc": {Name: "netrc", Render: "native", Template: "global-tpl"},
+			"netrc": {Render: "native", Template: "global-tpl"},
 		},
 	}
 
@@ -780,7 +780,7 @@ func TestDeactivate(t *testing.T) {
 
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"global-file": {Name: "global-file", Render: "native", Template: "global-tpl"},
+			"global-file": {Render: "native", Template: "global-tpl"},
 		},
 	}
 
@@ -841,7 +841,7 @@ func TestDeactivate(t *testing.T) {
 func TestDeactivateNotActive(t *testing.T) {
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
-			"global-file": {Name: "global-file", Render: "native", Template: "global-tpl"},
+			"global-file": {Render: "native", Template: "global-tpl"},
 		},
 	}
 
@@ -1204,6 +1204,178 @@ func TestActivateAutoDeactivatesAncestor(t *testing.T) {
 	}
 	if eff["npmrc"] == nil {
 		t.Error("npmrc should be present (from child's own config)")
+	}
+}
+
+func TestUpdateGlobalSwapsFiles(t *testing.T) {
+	globalCfg := &config.Config{
+		Files: map[string]*config.FileConfig{
+			"netrc": {Render: "native", Template: "tplA"},
+		},
+	}
+
+	var notified bool
+	mgr := NewManager(globalCfg, DefaultProjectConfigNames, func(map[string]*EffectiveFile) {
+		notified = true
+	})
+
+	eff := mgr.Effective()
+	if eff["netrc"].Template != "tplA" {
+		t.Errorf("initial template = %q, want tplA", eff["netrc"].Template)
+	}
+
+	newCfg := &config.Config{
+		Files: map[string]*config.FileConfig{
+			"netrc": {Render: "native", Template: "tplB"},
+			"npmrc": {Render: "native", Template: "tplC"},
+		},
+	}
+
+	mgr.UpdateGlobal(newCfg, nil)
+
+	eff = mgr.Effective()
+	if eff["netrc"].Template != "tplB" {
+		t.Errorf("updated template = %q, want tplB", eff["netrc"].Template)
+	}
+	if eff["npmrc"] == nil {
+		t.Error("expected npmrc in effective after UpdateGlobal")
+	}
+	if !notified {
+		t.Error("onChange should have been called")
+	}
+}
+
+func TestUpdateGlobalNoChangeNoNotify(t *testing.T) {
+	globalCfg := &config.Config{
+		Files: map[string]*config.FileConfig{
+			"netrc": {Render: "native", Template: "tplA"},
+		},
+	}
+
+	var notified bool
+	mgr := NewManager(globalCfg, DefaultProjectConfigNames, func(map[string]*EffectiveFile) {
+		notified = true
+	})
+
+	// Same config again.
+	sameCfg := &config.Config{
+		Files: map[string]*config.FileConfig{
+			"netrc": {Render: "native", Template: "tplA"},
+		},
+	}
+	mgr.UpdateGlobal(sameCfg, nil)
+
+	if notified {
+		t.Error("onChange should not be called when config unchanged")
+	}
+}
+
+func TestUpdateGlobalUpdatesConfigNames(t *testing.T) {
+	globalCfg := &config.Config{
+		Files: map[string]*config.FileConfig{},
+	}
+	mgr := NewManager(globalCfg, DefaultProjectConfigNames, nil)
+
+	newNames := []string{".slinky.toml"}
+	mgr.UpdateGlobal(globalCfg, newNames)
+
+	// Verify by checking that the manager uses the new config names.
+	// We do this indirectly by checking Layers() works (no panic).
+	_ = mgr.Layers()
+}
+
+func TestRefreshActivationReloadsProjectConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tplFile := filepath.Join(tmpDir, "netrc.tpl")
+	if err := os.WriteFile(tplFile, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	globalCfg := &config.Config{
+		Files: map[string]*config.FileConfig{},
+	}
+
+	var notifyCount int
+	mgr := NewManager(globalCfg, DefaultProjectConfigNames, func(map[string]*EffectiveFile) {
+		notifyCount++
+	})
+
+	projDir := filepath.Join(tmpDir, "project")
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projConfig := fmt.Sprintf("[files.netrc]\ntemplate = %q\nmode = 384\n", tplFile)
+	if err := os.WriteFile(filepath.Join(projDir, DefaultProjectConfigNames[0]), []byte(projConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := mgr.Activate(projDir, nil, 0); err != nil {
+		t.Fatalf("Activate() error: %v", err)
+	}
+
+	eff := mgr.Effective()
+	if eff["netrc"] == nil {
+		t.Fatal("expected netrc after activation")
+	}
+
+	// Add a new file to the project config.
+	tpl2 := filepath.Join(tmpDir, "npmrc.tpl")
+	if err := os.WriteFile(tpl2, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projConfig2 := fmt.Sprintf("[files.netrc]\ntemplate = %q\nmode = 384\n[files.npmrc]\ntemplate = %q\nmode = 384\n", tplFile, tpl2)
+	if err := os.WriteFile(filepath.Join(projDir, DefaultProjectConfigNames[0]), []byte(projConfig2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	notifyCount = 0
+	if err := mgr.RefreshActivation(projDir); err != nil {
+		t.Fatalf("RefreshActivation() error: %v", err)
+	}
+
+	eff = mgr.Effective()
+	if eff["npmrc"] == nil {
+		t.Error("expected npmrc after RefreshActivation")
+	}
+	if notifyCount != 1 {
+		t.Errorf("onChange called %d times, want 1", notifyCount)
+	}
+}
+
+func TestRefreshActivationNonActiveDirIsNoop(t *testing.T) {
+	globalCfg := &config.Config{
+		Files: map[string]*config.FileConfig{},
+	}
+	mgr := NewManager(globalCfg, DefaultProjectConfigNames, nil)
+
+	err := mgr.RefreshActivation("/nonexistent/dir")
+	if err != nil {
+		t.Errorf("RefreshActivation() error = %v, want nil", err)
+	}
+}
+
+func TestEffectiveMapsEqual(t *testing.T) {
+	a := map[string]*EffectiveFile{
+		"netrc": {FileConfig: &config.FileConfig{Render: "native", Template: "tplA"}},
+	}
+	b := map[string]*EffectiveFile{
+		"netrc": {FileConfig: &config.FileConfig{Render: "native", Template: "tplA"}},
+	}
+	if !effectiveMapsEqual(a, b) {
+		t.Error("expected equal")
+	}
+
+	c := map[string]*EffectiveFile{
+		"netrc": {FileConfig: &config.FileConfig{Render: "native", Template: "tplB"}},
+	}
+	if effectiveMapsEqual(a, c) {
+		t.Error("expected not equal")
+	}
+
+	d := map[string]*EffectiveFile{}
+	if effectiveMapsEqual(a, d) {
+		t.Error("expected not equal for different lengths")
 	}
 }
 

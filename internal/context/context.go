@@ -17,11 +17,13 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sync"
 
 	"github.com/kclejeune/slinky/internal/config"
 	"github.com/kclejeune/slinky/internal/render"
+	"github.com/kclejeune/slinky/internal/trust"
 )
 
 // DefaultProjectConfigNames are the filenames searched for in directory traversal.
@@ -33,17 +35,17 @@ var DefaultProjectConfigNames = []string{
 }
 
 type Layer struct {
-	Dir   string                        // directory containing this config
-	Files map[string]*config.FileConfig // files defined in this layer
-	Env   map[string]string             // env vars captured at activation time
+	Dir   string
+	Files map[string]*config.FileConfig
+	Env   map[string]string
 }
 
 type Activation struct {
 	Dir       string
 	Layers    []*Layer
-	Env       map[string]string         // env captured at activation time (even without project layers)
-	overrides map[string]*EffectiveFile // files from project layers only (not global)
-	sessions  map[int]bool              // PIDs referencing this activation (empty = no tracking)
+	Env       map[string]string
+	overrides map[string]*EffectiveFile
+	sessions  map[int]bool
 }
 
 type EffectiveFile struct {
@@ -73,6 +75,13 @@ type Manager struct {
 	effective   map[string]*EffectiveFile // file name → merged result
 	onChange    func(map[string]*EffectiveFile)
 	pidToDirs   map[int]map[string]bool // PID → set of dirs
+	trustStore  *trust.Store            // nil disables trust checks
+}
+
+// SetTrustStore configures the trust store for project config verification.
+// If nil, trust checks are disabled and all project configs are accepted.
+func (m *Manager) SetTrustStore(ts *trust.Store) {
+	m.trustStore = ts
 }
 
 func NewManager(globalCfg *config.Config, configNames []string, onChange func(map[string]*EffectiveFile)) *Manager {
@@ -92,6 +101,133 @@ func NewManager(globalCfg *config.Config, configNames []string, onChange func(ma
 
 	m.effective, _ = m.recompute()
 	return m
+}
+
+// UpdateGlobal replaces the global config layer (and optionally the project
+// config names), recomputes the effective set, and fires onChange if changed.
+func (m *Manager) UpdateGlobal(globalCfg *config.Config, configNames []string) {
+	m.activateMu.Lock()
+	defer m.activateMu.Unlock()
+
+	m.mu.Lock()
+	oldEffective := m.effective
+	m.global = &Layer{Dir: "", Files: globalCfg.Files, Env: nil}
+	if configNames != nil {
+		m.configNames = configNames
+	}
+	effective, _ := m.recompute()
+	m.effective = effective
+	m.mu.Unlock()
+
+	if !effectiveMapsEqual(oldEffective, effective) && m.onChange != nil {
+		m.onChange(effective)
+	}
+}
+
+// RefreshActivation re-reads project configs for an already-active directory
+// and recomputes the effective set. If the trust check fails for a modified
+// config, the directory is deactivated with a warning.
+func (m *Manager) RefreshActivation(dir string) error {
+	m.activateMu.Lock()
+	defer m.activateMu.Unlock()
+
+	m.mu.Lock()
+	act, ok := m.activations[dir]
+	if !ok {
+		m.mu.Unlock()
+		return nil
+	}
+
+	paths := DiscoverLayers(dir, m.configNames)
+
+	// Verify trust and read in a single pass to avoid TOCTOU.
+	var verifiedFiles []trust.VerifiedFile
+	if m.trustStore != nil && len(paths) > 0 {
+		var untrusted string
+		var verifyErr error
+		verifiedFiles, untrusted, verifyErr = m.trustStore.ReadAndVerifyPaths(paths)
+		if verifyErr != nil || untrusted != "" {
+			delete(m.activations, dir)
+			effective, _ := m.recompute()
+			m.effective = effective
+			m.mu.Unlock()
+			if verifyErr != nil {
+				slog.Warn("trust check failed during refresh, deactivating", "dir", dir, "error", verifyErr)
+			} else {
+				slog.Warn("project config no longer trusted, deactivating", "dir", dir, "path", untrusted)
+				verifyErr = fmt.Errorf("project config no longer trusted: %s", untrusted)
+			}
+			if m.onChange != nil {
+				m.onChange(effective)
+			}
+			return verifyErr
+		}
+	}
+
+	env := act.Env
+	layers := make([]*Layer, 0, len(paths))
+	if verifiedFiles != nil {
+		for _, vf := range verifiedFiles {
+			files, loadErr := config.ParseProjectConfig(vf.Path, vf.Data, m.configNames)
+			if loadErr != nil {
+				slog.Warn("skipping invalid project config during refresh", "path", vf.Path, "error", loadErr)
+				continue
+			}
+			layers = append(layers, &Layer{
+				Dir:   filepath.Dir(vf.Path),
+				Files: files,
+				Env:   env,
+			})
+		}
+	} else {
+		for _, p := range paths {
+			files, loadErr := config.LoadProjectConfig(p, m.configNames)
+			if loadErr != nil {
+				slog.Warn("skipping invalid project config during refresh", "path", p, "error", loadErr)
+				continue
+			}
+			layers = append(layers, &Layer{
+				Dir:   filepath.Dir(p),
+				Files: files,
+				Env:   env,
+			})
+		}
+	}
+
+	overrides := make(map[string]*EffectiveFile)
+	for _, layer := range layers {
+		for name, fc := range layer.Files {
+			overrides[name] = &EffectiveFile{
+				FileConfig: fc,
+				Env:        layer.Env,
+			}
+		}
+	}
+
+	act.Layers = layers
+	act.overrides = overrides
+
+	oldEffective := m.effective
+	effective, err := m.recompute()
+	if err != nil {
+		slog.Error("conflict during refresh activation", "dir", dir, "error", err)
+		m.mu.Unlock()
+		return err
+	}
+	m.effective = effective
+	m.mu.Unlock()
+
+	if !effectiveMapsEqual(oldEffective, effective) && m.onChange != nil {
+		m.onChange(effective)
+	}
+
+	return nil
+}
+
+func effectiveMapsEqual(a, b map[string]*EffectiveFile) bool {
+	return maps.EqualFunc(a, b, func(efA, efB *EffectiveFile) bool {
+		return reflect.DeepEqual(efA.FileConfig, efB.FileConfig)
+	})
 }
 
 // Effective returns a shallow copy of the current merged file set.
@@ -138,18 +274,50 @@ func (m *Manager) Activate(dir string, env map[string]string, pid int) ([]string
 
 	paths := DiscoverLayers(dir, m.configNames)
 
-	layers := make([]*Layer, 0, len(paths))
-	for _, p := range paths {
-		files, err := config.LoadProjectConfig(p, m.configNames)
+	// Verify all discovered project configs are trusted and load them
+	// in a single read to avoid a TOCTOU window between trust check and parse.
+	var verifiedFiles []trust.VerifiedFile
+	if m.trustStore != nil && len(paths) > 0 {
+		var untrusted string
+		var err error
+		verifiedFiles, untrusted, err = m.trustStore.ReadAndVerifyPaths(paths)
 		if err != nil {
-			slog.Warn("skipping invalid project config", "path", p, "error", err)
-			continue
+			return nil, fmt.Errorf("trust check: %w", err)
 		}
-		layers = append(layers, &Layer{
-			Dir:   filepath.Dir(p),
-			Files: files,
-			Env:   env,
-		})
+		if untrusted != "" {
+			return nil, fmt.Errorf("%w: %s (run \"slinky allow\" in the project directory to trust it)", trust.ErrUntrusted, untrusted)
+		}
+	}
+
+	layers := make([]*Layer, 0, len(paths))
+	if verifiedFiles != nil {
+		// Parse from already-read, trust-verified bytes.
+		for _, vf := range verifiedFiles {
+			files, err := config.ParseProjectConfig(vf.Path, vf.Data, m.configNames)
+			if err != nil {
+				slog.Warn("skipping invalid project config", "path", vf.Path, "error", err)
+				continue
+			}
+			layers = append(layers, &Layer{
+				Dir:   filepath.Dir(vf.Path),
+				Files: files,
+				Env:   env,
+			})
+		}
+	} else {
+		// No trust store — load directly from disk.
+		for _, p := range paths {
+			files, err := config.LoadProjectConfig(p, m.configNames)
+			if err != nil {
+				slog.Warn("skipping invalid project config", "path", p, "error", err)
+				continue
+			}
+			layers = append(layers, &Layer{
+				Dir:   filepath.Dir(p),
+				Files: files,
+				Env:   env,
+			})
+		}
 	}
 
 	overrides := make(map[string]*EffectiveFile)
@@ -189,12 +357,16 @@ func (m *Manager) Activate(dir string, env map[string]string, pid int) ([]string
 	m.activations[dir] = activation
 
 	// Auto-deactivate: remove this session from all other activations.
+	// Collect dirs to remove first to avoid mutating pidToDirs during iteration.
 	var removedActivations map[string]*Activation
 	if pid > 0 {
+		var dirsToRemove []string
 		for d := range m.pidToDirs[pid] {
-			if d == dir {
-				continue
+			if d != dir {
+				dirsToRemove = append(dirsToRemove, d)
 			}
+		}
+		for _, d := range dirsToRemove {
 			act, ok := m.activations[d]
 			if !ok {
 				delete(m.pidToDirs[pid], d)
@@ -240,6 +412,9 @@ func (m *Manager) Activate(dir string, env map[string]string, pid int) ([]string
 	m.effective = effective
 	m.mu.Unlock()
 
+	// onChange fires after unlock — the effective map is a snapshot and may
+	// be stale by the time the callback runs. Callers must treat it as
+	// a point-in-time view, not a live reference.
 	if m.onChange != nil {
 		m.onChange(effective)
 	}
@@ -390,6 +565,8 @@ func (m *Manager) recompute() (map[string]*EffectiveFile, error) {
 		}
 	}
 
+	// Env filtering runs on the final merged set intentionally — the template
+	// determines which env vars are needed, not the source layer.
 	filterEffectiveEnv(effective)
 	return effective, nil
 }
