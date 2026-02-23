@@ -50,6 +50,8 @@ func main() {
 	root.AddCommand(statusCmd())
 	root.AddCommand(activateCmd())
 	root.AddCommand(deactivateCmd())
+	root.AddCommand(allowCmd())
+	root.AddCommand(denyCmd())
 	root.AddCommand(serviceCmd())
 	root.AddCommand(renderCmd())
 	root.AddCommand(cacheCmd())
