@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -55,7 +56,6 @@ Typically called from shell hooks (mise, direnv):
 				}
 			}
 
-			// Auto-detect session PID when not explicitly set.
 			// Use the session leader PID (Getsid) rather than the direct
 			// parent (Getppid). When called from shell hooks (e.g. mise),
 			// the parent may be a transient intermediate process that exits
@@ -70,8 +70,6 @@ Typically called from shell hooks (mise, direnv):
 				session = sid
 			}
 
-			// Capture current environment, filtered to only the variables
-			// referenced by templates (plus a small essential allowlist).
 			env := filterActivationEnv(dir)
 
 			client := control.NewClient("")
@@ -99,6 +97,18 @@ Typically called from shell hooks (mise, direnv):
 						fmt.Fprintf(os.Stderr, "error: %s\n", w)
 					}
 					return fmt.Errorf("activation succeeded but %d file(s) failed to render", len(resp.Warnings))
+				}
+			}
+
+			// Check if the daemon's config matches the on-disk config.
+			status, statusErr := client.Status()
+			if statusErr == nil && status.ConfigHash != "" {
+				diskCfg, loadErr := config.Load(cfgFile)
+				if loadErr == nil {
+					diskHash, hashErr := diskCfg.Hash()
+					if hashErr == nil && diskHash != status.ConfigHash {
+						fmt.Fprintf(os.Stderr, "warning: daemon config is out of date (run `slinky stop && slinky start` or send SIGHUP to reload)\n")
+					}
 				}
 			}
 
@@ -208,17 +218,16 @@ func filterActivationEnv(dir string) map[string]string {
 	// Collect the union of referenced env var names from all file configs.
 	referenced := make(map[string]bool)
 
-	// Load global config (best-effort; if it fails, send full env).
 	globalCfg, err := config.Load(cfgFile)
 	if err != nil {
+		slog.Warn("env filtering: config load failed, forwarding full environment", "error", err)
 		return fullEnv
 	}
 
-	// Extract from global file definitions.
 	for name, fc := range globalCfg.Files {
 		vars := render.ExtractEnvVars(name, fc)
 		if vars == nil {
-			// Extraction failed or command mode — keep all env as fallback.
+			slog.Warn("env filtering: template extraction failed, forwarding full environment", "file", name)
 			return fullEnv
 		}
 		for k := range vars {
@@ -237,6 +246,7 @@ func filterActivationEnv(dir string) map[string]string {
 		for name, fc := range files {
 			vars := render.ExtractEnvVars(name, fc)
 			if vars == nil {
+				slog.Warn("env filtering: project template extraction failed, forwarding full environment", "file", name)
 				return fullEnv
 			}
 			for k := range vars {

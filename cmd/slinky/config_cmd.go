@@ -17,6 +17,7 @@ import (
 	"github.com/kclejeune/slinky/internal/cipher"
 	"github.com/kclejeune/slinky/internal/config"
 	slinkycontext "github.com/kclejeune/slinky/internal/context"
+	"github.com/kclejeune/slinky/internal/control"
 	"github.com/kclejeune/slinky/internal/resolver"
 )
 
@@ -24,11 +25,11 @@ const defaultGlobalConfigTemplate = `# slinky global configuration
 # See: https://github.com/kclejeune/slinky
 
 [settings.mount]
-backend = "fuse"           # "fuse", "tmpfs", or "fifo"
+backend = "auto"           # "auto", "fuse", "tmpfs", or "fifo"
 mount_point = "~/.secrets.d"
 
 [settings.cache]
-cipher = "age-ephemeral"
+cipher = "ephemeral"            # "ephemeral", "auto", "keychain", "keyring", or "keyctl" (Linux only)
 default_ttl = "5m"
 
 # Define secret files below. Example:
@@ -154,8 +155,6 @@ file set with which layer contributes each file (deepest wins).`,
 			configNames := slinkycontext.ResolveProjectConfigNames(globalCfg)
 			layers := slinkycontext.DiscoverLayers(dir, configNames)
 
-			// Track effective: file name → source path (deepest wins).
-			// Start with global owning everything.
 			effective := make(map[string]string)
 			for _, name := range globalNames {
 				effective[name] = globalPath
@@ -442,16 +441,78 @@ func cacheCmd() *cobra.Command {
 		Use:   "clear",
 		Short: "Clear all cached entries",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("Cache clear requires a running daemon. Use SIGHUP to trigger a cache clear.")
+			client := control.NewClient("")
+			resp, err := client.CacheClear()
+			if err != nil {
+				return err
+			}
+			if !resp.OK {
+				return fmt.Errorf("cache clear failed")
+			}
+			fmt.Fprintln(os.Stderr, "cache cleared")
 			return nil
 		},
 	})
 
 	cmd.AddCommand(&cobra.Command{
-		Use:   "stats",
-		Short: "Show cache statistics",
+		Use:     "stats",
+		Aliases: []string{"info"},
+		Short:   "Show cache statistics",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("Cache stats requires a running daemon.")
+			client := control.NewClient("")
+			resp, err := client.CacheStats()
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("cipher:  %s\n", resp.Cipher)
+			fmt.Printf("entries: %d\n", len(resp.Entries))
+
+			if len(resp.Entries) > 0 {
+				fmt.Println()
+				keys := slices.Sorted(maps.Keys(resp.Entries))
+				for _, k := range keys {
+					info := resp.Entries[k]
+					fmt.Printf("  %-30s  age=%-10s ttl=%-10s %s\n", k, info.Age, info.TTL, info.State)
+				}
+			}
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List cached entry keys",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client := control.NewClient("")
+			resp, err := client.CacheStats()
+			if err != nil {
+				return err
+			}
+
+			keys := slices.Sorted(maps.Keys(resp.Entries))
+			for _, k := range keys {
+				fmt.Println(k)
+			}
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "get <key>",
+		Short: "Decrypt and print a cached entry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client := control.NewClient("")
+			resp, err := client.CacheGet(args[0])
+			if err != nil {
+				return err
+			}
+			if !resp.OK {
+				return fmt.Errorf("%s", resp.Error)
+			}
+			fmt.Print(resp.Value)
 			return nil
 		},
 	})

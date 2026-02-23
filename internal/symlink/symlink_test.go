@@ -39,7 +39,6 @@ func TestSetupAndCleanup(t *testing.T) {
 
 	cfg := defaultConfig(mountPoint, map[string]*config.FileConfig{
 		"netrc": {
-			Name:    "netrc",
 			Symlink: linkPath,
 		},
 	})
@@ -80,7 +79,6 @@ func TestSetupCreatesParentDirs(t *testing.T) {
 
 	cfg := defaultConfig(mountPoint, map[string]*config.FileConfig{
 		"config.json": {
-			Name:    "config.json",
 			Symlink: linkPath,
 		},
 	})
@@ -117,7 +115,6 @@ func TestSetupExistingFileErrorMode(t *testing.T) {
 		},
 		Files: map[string]*config.FileConfig{
 			"netrc": {
-				Name:    "netrc",
 				Symlink: linkPath,
 			},
 		},
@@ -159,7 +156,6 @@ func TestSetupExistingFileBackupMode(t *testing.T) {
 		},
 		Files: map[string]*config.FileConfig{
 			"netrc": {
-				Name:    "netrc",
 				Symlink: linkPath,
 			},
 		},
@@ -210,7 +206,6 @@ func TestCleanupRestoresBackup(t *testing.T) {
 		},
 		Files: map[string]*config.FileConfig{
 			"netrc": {
-				Name:    "netrc",
 				Symlink: linkPath,
 			},
 		},
@@ -259,7 +254,6 @@ func TestSetupExistingSymlinkAlwaysReplaced(t *testing.T) {
 
 	cfg := defaultConfig(mountPoint, map[string]*config.FileConfig{
 		"netrc": {
-			Name:    "netrc",
 			Symlink: linkPath,
 		},
 	})
@@ -298,7 +292,6 @@ func TestSetupRefusesDirTarget(t *testing.T) {
 
 	cfg := defaultConfig(mountPoint, map[string]*config.FileConfig{
 		"netrc": {
-			Name:    "netrc",
 			Symlink: linkPath,
 		},
 	})
@@ -313,9 +306,7 @@ func TestNoSymlinkConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	cfg := defaultConfig(tmpDir, map[string]*config.FileConfig{
-		"netrc": {
-			Name: "netrc",
-		},
+		"netrc": {},
 	})
 
 	mgr := NewManager()

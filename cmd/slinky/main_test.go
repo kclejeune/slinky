@@ -16,8 +16,8 @@ func TestNewServiceConfig(t *testing.T) {
 	if cfg.DisplayName != "slinky" {
 		t.Errorf("DisplayName = %q, want %q", cfg.DisplayName, "slinky")
 	}
-	if len(cfg.Arguments) != 1 || cfg.Arguments[0] != "start" {
-		t.Errorf("Arguments = %v, want [start]", cfg.Arguments)
+	if len(cfg.Arguments) != 1 || cfg.Arguments[0] != "run" {
+		t.Errorf("Arguments = %v, want [run]", cfg.Arguments)
 	}
 	if v, ok := cfg.Option["UserService"]; !ok || v != true {
 		t.Errorf("Option[UserService] = %v, want true", v)
@@ -27,7 +27,7 @@ func TestNewServiceConfig(t *testing.T) {
 func TestNewServiceConfigWithConfigPath(t *testing.T) {
 	cfg := newServiceConfig("/etc/slinky/config.toml")
 
-	want := []string{"start", "--config", "/etc/slinky/config.toml"}
+	want := []string{"run", "--config", "/etc/slinky/config.toml"}
 	if len(cfg.Arguments) != len(want) {
 		t.Fatalf("Arguments length = %d, want %d", len(cfg.Arguments), len(want))
 	}

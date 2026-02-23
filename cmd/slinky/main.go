@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -53,6 +54,8 @@ func main() {
 	root.AddCommand(allowCmd())
 	root.AddCommand(denyCmd())
 	root.AddCommand(serviceCmd())
+	root.AddCommand(logsCmd())
+	root.AddCommand(doctorCmd())
 	root.AddCommand(renderCmd())
 	root.AddCommand(cacheCmd())
 	root.AddCommand(cfgCmd())
@@ -63,13 +66,17 @@ func main() {
 }
 
 func setupLogging() {
+	setupLoggingWithWriter(os.Stderr)
+}
+
+func setupLoggingWithWriter(w io.Writer) {
 	level := slog.LevelInfo
 	if verbose {
 		level = slog.LevelDebug
 	} else if quiet {
 		level = slog.LevelWarn
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+	slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
 		Level: level,
 	})))
 }
