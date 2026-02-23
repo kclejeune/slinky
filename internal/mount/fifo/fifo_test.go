@@ -47,7 +47,7 @@ func testBackend(t *testing.T) (*Backend, string) {
 				MountPoint: mountPoint,
 			},
 			Cache: config.CacheConfig{
-				Cipher:     config.CipherAgeEphemeral,
+				Cipher:     config.CipherEphemeral,
 				DefaultTTL: config.Duration(5 * time.Minute),
 			},
 		},

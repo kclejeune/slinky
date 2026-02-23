@@ -40,7 +40,7 @@ func testBackend(t *testing.T) (*Backend, string) {
 				MountPoint: mountPoint,
 			},
 			Cache: config.CacheConfig{
-				Cipher:     config.CipherAgeEphemeral,
+				Cipher:     config.CipherEphemeral,
 				DefaultTTL: config.Duration(5 * time.Minute),
 			},
 		},
@@ -356,7 +356,7 @@ func TestRefreshLoopReRendersFiles(t *testing.T) {
 				MountPoint: mountPoint,
 			},
 			Cache: config.CacheConfig{
-				Cipher:     config.CipherAgeEphemeral,
+				Cipher:     config.CipherEphemeral,
 				DefaultTTL: config.Duration(50 * time.Millisecond),
 			},
 		},

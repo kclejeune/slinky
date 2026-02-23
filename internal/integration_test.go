@@ -35,7 +35,7 @@ func TestDaemonLifecycleIntegration(t *testing.T) {
 				MountPoint: filepath.Join(tmpDir, "mount"),
 			},
 			Cache: config.CacheConfig{
-				Cipher:     config.CipherAgeEphemeral,
+				Cipher:     config.CipherEphemeral,
 				DefaultTTL: config.Duration(5 * time.Minute),
 			},
 			Symlink: config.SymlinkConfig{Conflict: config.ConflictError, BackupExtension: ".bkp"},

@@ -1,9 +1,13 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -13,6 +17,7 @@ import (
 type BackendType string
 
 const (
+	BackendAuto  BackendType = "auto"
 	BackendFUSE  BackendType = "fuse"
 	BackendTmpfs BackendType = "tmpfs"
 	BackendFIFO  BackendType = "fifo"
@@ -21,7 +26,7 @@ const (
 func (b *BackendType) UnmarshalText(text []byte) error {
 	v := BackendType(text)
 	switch v {
-	case BackendFUSE, BackendTmpfs, BackendFIFO:
+	case BackendAuto, BackendFUSE, BackendTmpfs, BackendFIFO:
 		*b = v
 		return nil
 	default:
@@ -32,13 +37,16 @@ func (b *BackendType) UnmarshalText(text []byte) error {
 type CipherType string
 
 const (
-	CipherAgeEphemeral CipherType = "age-ephemeral"
+	CipherAuto      CipherType = "auto"
+	CipherEphemeral CipherType = "ephemeral"
+	CipherKeyring   CipherType = "keyring"
+	CipherKeyctl    CipherType = "keyctl"
 )
 
 func (ct *CipherType) UnmarshalText(text []byte) error {
 	v := CipherType(text)
 	switch v {
-	case CipherAgeEphemeral:
+	case CipherAuto, CipherEphemeral, CipherKeyring, CipherKeyctl:
 		*ct = v
 		return nil
 	default:
@@ -131,11 +139,11 @@ func DefaultConfig() *Config {
 	return &Config{
 		Settings: Settings{
 			Mount: MountConfig{
-				Backend:    BackendFUSE,
+				Backend:    BackendAuto,
 				MountPoint: "~/.secrets.d",
 			},
 			Cache: CacheConfig{
-				Cipher:     CipherAgeEphemeral,
+				Cipher:     CipherEphemeral,
 				DefaultTTL: Duration(5 * time.Minute),
 			},
 		},
@@ -189,7 +197,7 @@ func Load(path string) (*Config, error) {
 
 func (c *Config) Validate() error {
 	switch c.Settings.Cache.Cipher {
-	case CipherAgeEphemeral:
+	case CipherAuto, CipherEphemeral, CipherKeyring, CipherKeyctl:
 	default:
 		return fmt.Errorf("unsupported cache cipher: %q", c.Settings.Cache.Cipher)
 	}
@@ -232,6 +240,80 @@ func (fc *FileConfig) Validate(name string) error {
 	}
 
 	return nil
+}
+
+// Hash returns a hex-encoded SHA-256 digest of the config's serialized
+// form. Two configs with identical settings and files produce the same
+// hash. Used for staleness detection between CLI and daemon.
+func (c *Config) Hash() (string, error) {
+	b, err := json.Marshal(c)
+	if err != nil {
+		return "", fmt.Errorf("hashing config: %w", err)
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+type DiffResult struct {
+	OldSettings Settings
+	NewSettings Settings
+	OldFiles    map[string]*FileConfig
+	NewFiles    map[string]*FileConfig
+}
+
+func (d *DiffResult) SettingsChanged() bool {
+	return !reflect.DeepEqual(d.OldSettings, d.NewSettings)
+}
+
+func (d *DiffResult) FilesChanged() bool {
+	return !reflect.DeepEqual(d.OldFiles, d.NewFiles)
+}
+
+func (d *DiffResult) FilesAdded() []string {
+	var added []string
+	for name := range d.NewFiles {
+		if _, ok := d.OldFiles[name]; !ok {
+			added = append(added, name)
+		}
+	}
+	return added
+}
+
+func (d *DiffResult) FilesRemoved() []string {
+	var removed []string
+	for name := range d.OldFiles {
+		if _, ok := d.NewFiles[name]; !ok {
+			removed = append(removed, name)
+		}
+	}
+	return removed
+}
+
+func (d *DiffResult) FilesModified() []string {
+	var modified []string
+	for name, oldFC := range d.OldFiles {
+		newFC, ok := d.NewFiles[name]
+		if !ok {
+			continue
+		}
+		if !reflect.DeepEqual(oldFC, newFC) {
+			modified = append(modified, name)
+		}
+	}
+	return modified
+}
+
+func (d *DiffResult) HasChanges() bool {
+	return d.SettingsChanged() || d.FilesChanged()
+}
+
+func Diff(old, new *Config) *DiffResult {
+	return &DiffResult{
+		OldSettings: old.Settings,
+		NewSettings: new.Settings,
+		OldFiles:    old.Files,
+		NewFiles:    new.Files,
+	}
 }
 
 func (fc *FileConfig) FileTTL(defaultTTL Duration) time.Duration {
@@ -300,6 +382,15 @@ func LoadProjectConfig(path string, configNames []string) (map[string]*FileConfi
 	if err != nil {
 		return nil, fmt.Errorf("reading project config: %w", err)
 	}
+
+	return ParseProjectConfig(path, data, configNames)
+}
+
+// ParseProjectConfig parses a project config from already-read bytes.
+// This is used when the file has already been read for trust verification,
+// avoiding a TOCTOU window between trust check and parse.
+func ParseProjectConfig(path string, data []byte, configNames []string) (map[string]*FileConfig, error) {
+	path = ExpandPath(path)
 
 	var pc ProjectConfig
 	if err := toml.Unmarshal(data, &pc); err != nil {

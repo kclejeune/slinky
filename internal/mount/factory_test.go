@@ -15,7 +15,7 @@ func testResolver(t *testing.T) *resolver.SecretResolver {
 	cfg := &config.Config{
 		Settings: config.Settings{
 			Cache: config.CacheConfig{
-				Cipher:     config.CipherAgeEphemeral,
+				Cipher:     config.CipherEphemeral,
 				DefaultTTL: config.Duration(5 * time.Minute),
 			},
 		},
@@ -34,7 +34,7 @@ func TestNewBackendFuse(t *testing.T) {
 	cfg := &config.Config{
 		Settings: config.Settings{
 			Mount: config.MountConfig{Backend: config.BackendFUSE, MountPoint: "/tmp/test"},
-			Cache: config.CacheConfig{Cipher: config.CipherAgeEphemeral, DefaultTTL: config.Duration(5 * time.Minute)},
+			Cache: config.CacheConfig{Cipher: config.CipherEphemeral, DefaultTTL: config.Duration(5 * time.Minute)},
 		},
 		Files: make(map[string]*config.FileConfig),
 	}
@@ -52,7 +52,7 @@ func TestNewBackendTmpfs(t *testing.T) {
 	cfg := &config.Config{
 		Settings: config.Settings{
 			Mount: config.MountConfig{Backend: config.BackendTmpfs, MountPoint: "/tmp/test"},
-			Cache: config.CacheConfig{Cipher: config.CipherAgeEphemeral, DefaultTTL: config.Duration(5 * time.Minute)},
+			Cache: config.CacheConfig{Cipher: config.CipherEphemeral, DefaultTTL: config.Duration(5 * time.Minute)},
 		},
 		Files: make(map[string]*config.FileConfig),
 	}
@@ -70,7 +70,7 @@ func TestNewBackendFifo(t *testing.T) {
 	cfg := &config.Config{
 		Settings: config.Settings{
 			Mount: config.MountConfig{Backend: config.BackendFIFO, MountPoint: "/tmp/test"},
-			Cache: config.CacheConfig{Cipher: config.CipherAgeEphemeral, DefaultTTL: config.Duration(5 * time.Minute)},
+			Cache: config.CacheConfig{Cipher: config.CipherEphemeral, DefaultTTL: config.Duration(5 * time.Minute)},
 		},
 		Files: make(map[string]*config.FileConfig),
 	}

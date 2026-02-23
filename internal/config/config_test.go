@@ -32,11 +32,11 @@ func TestExpandPath(t *testing.T) {
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.Settings.Mount.Backend != BackendFUSE {
-		t.Errorf("default backend = %q, want %q", cfg.Settings.Mount.Backend, BackendFUSE)
+	if cfg.Settings.Mount.Backend != BackendAuto {
+		t.Errorf("default backend = %q, want %q", cfg.Settings.Mount.Backend, BackendAuto)
 	}
-	if cfg.Settings.Cache.Cipher != CipherAgeEphemeral {
-		t.Errorf("default cipher = %q, want %q", cfg.Settings.Cache.Cipher, CipherAgeEphemeral)
+	if cfg.Settings.Cache.Cipher != CipherEphemeral {
+		t.Errorf("default cipher = %q, want %q", cfg.Settings.Cache.Cipher, CipherEphemeral)
 	}
 	if cfg.Settings.Cache.DefaultTTL != Duration(5*time.Minute) {
 		t.Errorf("default TTL = %v, want %v", cfg.Settings.Cache.DefaultTTL, Duration(5*time.Minute))
@@ -56,7 +56,7 @@ backend = "fuse"
 mount_point = "` + tmpDir + `/mount"
 
 [settings.cache]
-cipher = "age-ephemeral"
+cipher = "ephemeral"
 default_ttl = "10m"
 
 [files.netrc]
@@ -83,9 +83,6 @@ symlink = "` + tmpDir + `/link"
 	if !ok {
 		t.Fatal("expected 'netrc' file config")
 	}
-	if fc.Name != "netrc" {
-		t.Errorf("file name = %q, want %q", fc.Name, "netrc")
-	}
 	if fc.Render != "native" {
 		t.Errorf("render = %q, want %q", fc.Render, "native")
 	}
@@ -93,6 +90,13 @@ symlink = "` + tmpDir + `/link"
 
 func TestBackendTypeUnmarshalText(t *testing.T) {
 	var b BackendType
+	if err := b.UnmarshalText([]byte("auto")); err != nil {
+		t.Errorf("unexpected error for 'auto': %v", err)
+	}
+	if b != BackendAuto {
+		t.Errorf("got %q, want %q", b, BackendAuto)
+	}
+
 	if err := b.UnmarshalText([]byte("fuse")); err != nil {
 		t.Errorf("unexpected error for 'fuse': %v", err)
 	}
@@ -204,7 +208,7 @@ backend = "fuse"
 mount_point = "` + tmpDir + `/mount"
 
 [settings.cache]
-cipher = "age-ephemeral"
+cipher = "ephemeral"
 default_ttl = "5m"
 
 [files.test]
@@ -317,6 +321,155 @@ template = "test.tpl"
 	_, err := LoadProjectConfig(projFile, configNames)
 	if err == nil {
 		t.Error("expected error when project config contains [settings]")
+	}
+}
+
+func TestDiffNoChanges(t *testing.T) {
+	cfg := DefaultConfig()
+	d := Diff(cfg, cfg)
+	if d.HasChanges() {
+		t.Error("expected no changes")
+	}
+}
+
+func TestDiffFilesAdded(t *testing.T) {
+	old := DefaultConfig()
+	new := DefaultConfig()
+	new.Files["netrc"] = &FileConfig{Render: "native", Template: "/tpl"}
+
+	d := Diff(old, new)
+	if !d.FilesChanged() {
+		t.Error("expected FilesChanged")
+	}
+	if added := d.FilesAdded(); len(added) != 1 || added[0] != "netrc" {
+		t.Errorf("FilesAdded = %v, want [netrc]", added)
+	}
+}
+
+func TestDiffFilesRemoved(t *testing.T) {
+	old := DefaultConfig()
+	old.Files["netrc"] = &FileConfig{Render: "native", Template: "/tpl"}
+	new := DefaultConfig()
+
+	d := Diff(old, new)
+	if !d.FilesChanged() {
+		t.Error("expected FilesChanged")
+	}
+	if removed := d.FilesRemoved(); len(removed) != 1 || removed[0] != "netrc" {
+		t.Errorf("FilesRemoved = %v, want [netrc]", removed)
+	}
+}
+
+func TestDiffFilesModified(t *testing.T) {
+	old := DefaultConfig()
+	old.Files["netrc"] = &FileConfig{Render: "native", Template: "/tplA"}
+	new := DefaultConfig()
+	new.Files["netrc"] = &FileConfig{Render: "native", Template: "/tplB"}
+
+	d := Diff(old, new)
+	if !d.FilesChanged() {
+		t.Error("expected FilesChanged")
+	}
+	if modified := d.FilesModified(); len(modified) != 1 || modified[0] != "netrc" {
+		t.Errorf("FilesModified = %v, want [netrc]", modified)
+	}
+}
+
+func TestDiffSettingsChanged(t *testing.T) {
+	old := DefaultConfig()
+	new := DefaultConfig()
+	new.Settings.Cache.DefaultTTL = Duration(10 * time.Minute)
+
+	d := Diff(old, new)
+	if d.OldSettings.Cache.DefaultTTL == d.NewSettings.Cache.DefaultTTL {
+		t.Error("expected DefaultTTL to differ")
+	}
+	if !d.HasChanges() {
+		t.Error("expected HasChanges")
+	}
+}
+
+func TestDiffMountBackendChanged(t *testing.T) {
+	old := DefaultConfig()
+	new := DefaultConfig()
+	new.Settings.Mount.Backend = BackendFUSE
+
+	d := Diff(old, new)
+	if d.OldSettings.Mount.Backend == d.NewSettings.Mount.Backend {
+		t.Error("expected MountBackend to differ")
+	}
+}
+
+func TestConfigHash(t *testing.T) {
+	cfg1 := DefaultConfig()
+	cfg2 := DefaultConfig()
+
+	h1, err := cfg1.Hash()
+	if err != nil {
+		t.Fatal("Hash() error:", err)
+	}
+	h2, err := cfg2.Hash()
+	if err != nil {
+		t.Fatal("Hash() error:", err)
+	}
+
+	if h1 == "" {
+		t.Fatal("Hash() returned empty string")
+	}
+	if len(h1) != 64 {
+		t.Errorf("Hash() length = %d, want 64 hex chars", len(h1))
+	}
+	if h1 != h2 {
+		t.Error("identical configs should produce identical hashes")
+	}
+
+	// Changing a setting should change the hash.
+	cfg2.Settings.Mount.Backend = BackendFUSE
+	h3, err := cfg2.Hash()
+	if err != nil {
+		t.Fatal("Hash() error:", err)
+	}
+	if h3 == h1 {
+		t.Error("different configs should produce different hashes")
+	}
+
+	// Changing files should change the hash.
+	cfg3 := DefaultConfig()
+	cfg3.Files["netrc"] = &FileConfig{Render: "native", Template: "/tpl"}
+	h4, err := cfg3.Hash()
+	if err != nil {
+		t.Fatal("Hash() error:", err)
+	}
+	if h4 == h1 {
+		t.Error("config with files should differ from config without files")
+	}
+}
+
+func TestDiffProjectConfigNames(t *testing.T) {
+	old := DefaultConfig()
+	new := DefaultConfig()
+	new.Settings.ProjectConfigNames = []string{".slinky.toml"}
+
+	d := Diff(old, new)
+	if !d.SettingsChanged() {
+		t.Error("expected SettingsChanged")
+	}
+}
+
+func TestDiffSymlinkSettings(t *testing.T) {
+	old := DefaultConfig()
+	old.Settings.Symlink.Conflict = ConflictError
+	old.Settings.Symlink.BackupExtension = ".bkp"
+	new := DefaultConfig()
+	new.Settings.Symlink.Conflict = ConflictBackup
+	new.Settings.Symlink.BackupExtension = ".bak"
+
+	d := Diff(old, new)
+	if d.OldSettings.Symlink.Conflict == d.NewSettings.Symlink.Conflict {
+		t.Error("expected Symlink.Conflict to differ")
+	}
+	if d.OldSettings.Symlink.BackupExtension == d.NewSettings.Symlink.BackupExtension {
+		t.Error("expected Symlink.BackupExtension to differ")
 	}
 }
 
