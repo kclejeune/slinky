@@ -25,6 +25,7 @@ Notably, `slinky` does not resolve secrets itself. It reads environment variable
 1. **Install** — build from source with `go install github.com/kclejeune/slinky/cmd/slinky@latest`, or use `nix build .#slinky`.
 
 2. **Create a global config** using `slinky cfg init --global`, then edit it:
+
    ```toml
    # ~/.config/slinky/config.toml
 
@@ -41,6 +42,7 @@ Notably, `slinky` does not resolve secrets itself. It reads environment variable
    ```
 
 3. **Write a template** at `~/.config/slinky/templates/netrc.tpl`:
+
    ```
    machine github.com
      login {{ env "GITHUB_USERNAME" }}
@@ -48,6 +50,7 @@ Notably, `slinky` does not resolve secrets itself. It reads environment variable
    ```
 
 4. **Install shell hooks** so the daemon captures your environment on each directory change. Run `slinky cfg hook` to generate hook code for your shell:
+
    ```bash
    # bash (~/.bashrc)
    echo 'eval "$(slinky cfg hook bash)"' >> ~/.bashrc
@@ -58,13 +61,17 @@ Notably, `slinky` does not resolve secrets itself. It reads environment variable
    # fish (~/.config/fish/config.fish)
    echo 'slinky cfg hook fish | source' >> ~/.config/fish/config.fish
    ```
+
    See [Shell integration](#shell-integration) for details and alternative integrations.
 
 5. **Start the daemon** — install it as a system service so it starts automatically on login:
+
    ```bash
    slinky svc install
    ```
+
    Or start it manually for a one-off session:
+
    ```bash
    slinky start -d
    ```
@@ -336,21 +343,25 @@ When using directory-scoped contexts, `env()` and `envDefault()` first check the
 #### Built-in template functions
 
 **`env`** — Required environment variable. Returns an error during rendering if unset.
+
 ```
 {{ env "GITHUB_TOKEN" }}
 ```
 
 **`envDefault`** — Environment variable with a fallback value.
+
 ```
 {{ envDefault "CUSTOM_HOST" "registry.example.com" }}
 ```
 
 **`file`** — Read a file's contents. Paths are expanded (`~`, env vars).
+
 ```
 {{ file "~/.config/git/username" | trimSpace }}
 ```
 
 **`exec`** — Run a command and return its stdout (10 s timeout). Use sparingly — if most values come from `exec`, consider command render mode instead.
+
 ```
 {{ exec "op" "read" "op://Private/GitHub PAT/credential" }}
 ```
@@ -360,6 +371,7 @@ All [sprout functions](https://docs.atom.codes/sprout) are available: `b64enc`, 
 #### Template examples
 
 `.netrc` with multiple registries:
+
 ```
 machine github.com
   login {{ env "GITHUB_USERNAME" }}
@@ -375,6 +387,7 @@ machine {{ envDefault "REGISTRY_HOST" "registry.example.com" }}
 ```
 
 `.npmrc` with scoped registries:
+
 ```
 //registry.npmjs.org/:_authToken={{ env "NPM_TOKEN" }}
 //npm.pkg.github.com/:_authToken={{ env "GITHUB_TOKEN" }}
@@ -382,6 +395,7 @@ machine {{ envDefault "REGISTRY_HOST" "registry.example.com" }}
 ```
 
 `docker/config.json` with base64-encoded auth:
+
 ```json
 {
   "auths": {
@@ -400,6 +414,7 @@ machine {{ envDefault "REGISTRY_HOST" "registry.example.com" }}
 Command mode delegates rendering entirely to an external process. The command's stdout becomes the file content.
 
 Use this when:
+
 - Your provider has its own template engine (e.g., `op inject` with `{{ op://... }}` syntax)
 - You have existing render scripts you don't want to rewrite
 
@@ -432,6 +447,7 @@ The FUSE backend implements a virtual filesystem using `go-fuse`. Files exist on
 **Security:** `FOPEN_DIRECT_IO` bypasses the kernel page cache, so the OS holds no copy after the read completes. Memory is zeroed when the file handle is released.
 
 **Requirements:**
+
 - Linux: `libfuse3` (installed by default on most distributions)
 - macOS: [macFUSE](https://osxfuse.github.io/) or [FUSE-T](https://www.fuse-t.org/) (kext-free, uses NFS translation)
 
@@ -444,6 +460,7 @@ The tmpfs backend mounts a RAM-backed filesystem and writes rendered secret file
 **Security:** Plaintext exists as real file content in RAM for the duration of the refresh cycle. On Linux, it could theoretically swap to disk under memory pressure unless you configure `mlock` or `noswap`.
 
 **Requirements:**
+
 - Linux: `mount` privileges for `tmpfs` (typically `CAP_SYS_ADMIN`; alternatively, use a user namespace)
 - macOS: `hdiutil` and `diskutil` (available by default)
 
@@ -458,6 +475,7 @@ The FIFO backend creates named pipes at the mount point — one per file. When a
 **Requirements:** None beyond a writable directory. No FUSE library, no mount privileges.
 
 **Limitations:**
+
 - Single-reader-per-write semantics: if two processes open the same FIFO simultaneously, only the first reader gets content; the second receives EOF and must re-open.
 - Programs that `mmap` files or expect `stat(2)` to report a non-zero size will not work.
 
@@ -479,7 +497,7 @@ The FIFO backend creates named pipes at the mount point — one per file. When a
 
 - **It is not a secrets vault or resolver.** It does not talk to 1Password, age, sops, or any secret provider directly. It reads environment variables. Use fnox, mise, op run, direnv, etc. to populate those variables first.
 - **It is not a process isolation tool.** Any process running as your user can read the mounted files. It protects against secrets at rest on disk, not against malicious processes with your UID.
-- **It does not manage environment variables.** Use `fnox`, `op run`, `direnv`, or `mise` for env var injection. `slinky` consumes those variables to produce *files*.
+- **It does not manage environment variables.** Use `fnox`, `op run`, `direnv`, or `mise` for env var injection. `slinky` consumes those variables to produce _files_.
 
 ## Security model
 
@@ -526,11 +544,13 @@ fnox manages secrets across providers (age, 1Password) and mise injects them int
 ### 1Password CLI
 
 **Via environment (native mode):** Use `op run` to inject 1Password secrets as env vars, then activate:
+
 ```bash
 op run --env-file=.env -- slinky activate
 ```
 
 **Direct rendering (command mode):** Use `op inject` directly with its own template syntax:
+
 ```toml
 [files.netrc]
 render = "command"
@@ -600,10 +620,12 @@ slinky svc show               # Print the installed service unit definition
 Discovers project config files walking up from the target directory to `$HOME`, captures the current shell environment, and sends both to the daemon over the control socket. The daemon merges the new activation into the effective file set and reconciles symlinks.
 
 **Flags:**
+
 - `--hook` — Shell hook mode: warns instead of failing when the daemon is not running.
 - `--session <pid>` — Explicit session PID. Default: auto-detect via `Getsid()`. Use `--session 0` to disable session tracking.
 
 On activation, the daemon:
+
 1. Detects the session leader PID (via `Getsid`) for reference counting
 2. Auto-deactivates any previously activated directory for this session
 3. Discovers project config files from the target directory up to `$HOME`
@@ -618,6 +640,7 @@ On activation, the daemon:
 Removes a previously activated directory context. Its contributed files are removed from the effective set, restoring any global defaults they overrode.
 
 **Flags:**
+
 - `--hook` — Shell hook mode.
 - `--session <pid>` — Explicit session PID. `--session 0` force-removes regardless of other sessions.
 
