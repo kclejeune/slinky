@@ -19,8 +19,7 @@ func TestNativeRendererEnv(t *testing.T) {
 	t.Setenv("TEST_SECRET_TOKEN", "abc123")
 
 	r := &NativeRenderer{}
-	result, err := r.Render(&config.FileConfig{
-		Name:     "test",
+	result, err := r.Render("test", &config.FileConfig{
 		Template: tplFile,
 	}, nil, nil)
 	if err != nil {
@@ -40,8 +39,7 @@ func TestNativeRendererEnvMissing(t *testing.T) {
 	}
 
 	r := &NativeRenderer{}
-	_, err := r.Render(&config.FileConfig{
-		Name:     "test",
+	_, err := r.Render("test", &config.FileConfig{
 		Template: tplFile,
 	}, nil, nil)
 	if err == nil {
@@ -57,8 +55,7 @@ func TestNativeRendererEnvDefault(t *testing.T) {
 	}
 
 	r := &NativeRenderer{}
-	result, err := r.Render(&config.FileConfig{
-		Name:     "test",
+	result, err := r.Render("test", &config.FileConfig{
 		Template: tplFile,
 	}, nil, nil)
 	if err != nil {
@@ -84,8 +81,7 @@ func TestNativeRendererFile(t *testing.T) {
 	}
 
 	r := &NativeRenderer{}
-	result, err := r.Render(&config.FileConfig{
-		Name:     "test",
+	result, err := r.Render("test", &config.FileConfig{
 		Template: tplFile,
 	}, nil, nil)
 	if err != nil {
@@ -99,8 +95,7 @@ func TestNativeRendererFile(t *testing.T) {
 
 func TestCommandRenderer(t *testing.T) {
 	r := &CommandRenderer{}
-	result, err := r.Render(&config.FileConfig{
-		Name:    "test",
+	result, err := r.Render("test", &config.FileConfig{
 		Command: "echo",
 		Args:    []string{"hello world"},
 	}, nil, nil)
@@ -116,8 +111,7 @@ func TestCommandRenderer(t *testing.T) {
 
 func TestCommandRendererFailure(t *testing.T) {
 	r := &CommandRenderer{}
-	_, err := r.Render(&config.FileConfig{
-		Name:    "test",
+	_, err := r.Render("test", &config.FileConfig{
 		Command: "false",
 	}, nil, nil)
 	if err == nil {
@@ -152,8 +146,7 @@ func TestNativeRendererWithEnvLookup(t *testing.T) {
 	}
 
 	r := &NativeRenderer{}
-	result, err := r.Render(&config.FileConfig{
-		Name:     "test",
+	result, err := r.Render("test", &config.FileConfig{
 		Template: tplFile,
 	}, lookup, nil)
 	if err != nil {

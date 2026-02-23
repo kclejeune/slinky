@@ -183,7 +183,7 @@ func (s *Server) handleActivate(conn net.Conn, req Request) {
 			continue
 		}
 		renderer := render.NewRenderer(ef.FileConfig)
-		if _, renderErr := renderer.Render(ef.FileConfig, ef.EnvLookupFunc(), ef.Env); renderErr != nil {
+		if _, renderErr := renderer.Render(name, ef.FileConfig, ef.EnvLookupFunc(), ef.Env); renderErr != nil {
 			msg := fmt.Sprintf("file %q: render failed: %v", name, renderErr)
 			slog.Warn("render probe failed", "file", name, "error", renderErr)
 			warnings = append(warnings, msg)

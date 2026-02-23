@@ -72,7 +72,7 @@ func (r *SecretResolver) RenderOnly(name string) ([]byte, error) {
 	}
 
 	renderer := render.NewRenderer(fc)
-	return renderer.Render(fc, envLookup, envMap)
+	return renderer.Render(fc.Name, fc, envLookup, envMap)
 }
 
 // lookupFile returns the file config, env map, and env lookup for the named file.
@@ -93,7 +93,7 @@ func (r *SecretResolver) lookupFile(name string) (*config.FileConfig, map[string
 
 func (r *SecretResolver) renderAndCache(fc *config.FileConfig, keyStr string, envLookup render.EnvLookup, envMap map[string]string) ([]byte, error) {
 	renderer := render.NewRenderer(fc)
-	content, err := renderer.Render(fc, envLookup, envMap)
+	content, err := renderer.Render(fc.Name, fc, envLookup, envMap)
 	if err != nil {
 		return nil, fmt.Errorf("rendering %q: %w", fc.Name, err)
 	}
