@@ -47,7 +47,8 @@ func (m *darwinMounter) Mount() error {
 	// diskutil auto-mounts at /Volumes/Slinky; unmount to remount at our path.
 	_ = exec.Command("diskutil", "unmount", "/Volumes/Slinky").Run()
 
-	if err := exec.Command("diskutil", "mount", "-mountPoint", m.path, m.partition).Run(); err != nil {
+	if err := exec.Command("diskutil", "mount", "-mountPoint", m.path, m.partition).
+		Run(); err != nil {
 		_ = exec.Command("hdiutil", "detach", m.device).Run()
 		return fmt.Errorf("diskutil mount at %q: %w", m.path, err)
 	}

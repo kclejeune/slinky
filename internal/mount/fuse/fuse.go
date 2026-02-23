@@ -127,7 +127,10 @@ func (b *Backend) Name() string {
 
 // effectiveFiles returns the current file set, preferring ContextManager
 // if available, falling back to cfg.Files.
-func effectiveFiles(cfg *config.Config, ctxMgr *slinkycontext.Manager) map[string]*config.FileConfig {
+func effectiveFiles(
+	cfg *config.Config,
+	ctxMgr *slinkycontext.Manager,
+) map[string]*config.FileConfig {
 	if ctxMgr != nil {
 		return ctxMgr.EffectiveFileConfigs()
 	}
@@ -143,12 +146,18 @@ type fuseRoot struct {
 	ctxMgr   *slinkycontext.Manager
 }
 
-var _ gofuse.InodeEmbedder = (*fuseRoot)(nil)
-var _ gofuse.NodeLookuper = (*fuseRoot)(nil)
-var _ gofuse.NodeReaddirer = (*fuseRoot)(nil)
-var _ gofuse.NodeGetattrer = (*fuseRoot)(nil)
+var (
+	_ gofuse.InodeEmbedder = (*fuseRoot)(nil)
+	_ gofuse.NodeLookuper  = (*fuseRoot)(nil)
+	_ gofuse.NodeReaddirer = (*fuseRoot)(nil)
+	_ gofuse.NodeGetattrer = (*fuseRoot)(nil)
+)
 
-func (r *fuseRoot) Getattr(ctx context.Context, fh gofuse.FileHandle, out *fuse.AttrOut) syscall.Errno {
+func (r *fuseRoot) Getattr(
+	ctx context.Context,
+	fh gofuse.FileHandle,
+	out *fuse.AttrOut,
+) syscall.Errno {
 	out.Mode = 0o755 | unix.S_IFDIR
 	out.Uid = currentUID
 	out.Gid = currentGID
@@ -156,7 +165,11 @@ func (r *fuseRoot) Getattr(ctx context.Context, fh gofuse.FileHandle, out *fuse.
 }
 
 // Lookup handles path resolution at the root level.
-func (r *fuseRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*gofuse.Inode, syscall.Errno) {
+func (r *fuseRoot) Lookup(
+	ctx context.Context,
+	name string,
+	out *fuse.EntryOut,
+) (*gofuse.Inode, syscall.Errno) {
 	files := effectiveFiles(r.cfg, r.ctxMgr)
 
 	if entry, ok := files[name]; ok {
@@ -237,18 +250,28 @@ type fuseDir struct {
 	resolver *resolver.SecretResolver
 }
 
-var _ gofuse.NodeGetattrer = (*fuseDir)(nil)
-var _ gofuse.NodeLookuper = (*fuseDir)(nil)
-var _ gofuse.NodeReaddirer = (*fuseDir)(nil)
+var (
+	_ gofuse.NodeGetattrer = (*fuseDir)(nil)
+	_ gofuse.NodeLookuper  = (*fuseDir)(nil)
+	_ gofuse.NodeReaddirer = (*fuseDir)(nil)
+)
 
-func (d *fuseDir) Getattr(ctx context.Context, fh gofuse.FileHandle, out *fuse.AttrOut) syscall.Errno {
+func (d *fuseDir) Getattr(
+	ctx context.Context,
+	fh gofuse.FileHandle,
+	out *fuse.AttrOut,
+) syscall.Errno {
 	out.Mode = 0o755 | unix.S_IFDIR
 	out.Uid = currentUID
 	out.Gid = currentGID
 	return 0
 }
 
-func (d *fuseDir) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*gofuse.Inode, syscall.Errno) {
+func (d *fuseDir) Lookup(
+	ctx context.Context,
+	name string,
+	out *fuse.EntryOut,
+) (*gofuse.Inode, syscall.Errno) {
 	files := effectiveFiles(d.cfg, d.ctxMgr)
 	fullPath := d.prefix + name
 
@@ -331,10 +354,16 @@ type fuseFile struct {
 	resolver *resolver.SecretResolver
 }
 
-var _ gofuse.NodeOpener = (*fuseFile)(nil)
-var _ gofuse.NodeGetattrer = (*fuseFile)(nil)
+var (
+	_ gofuse.NodeOpener    = (*fuseFile)(nil)
+	_ gofuse.NodeGetattrer = (*fuseFile)(nil)
+)
 
-func (f *fuseFile) Getattr(ctx context.Context, fh gofuse.FileHandle, out *fuse.AttrOut) syscall.Errno {
+func (f *fuseFile) Getattr(
+	ctx context.Context,
+	fh gofuse.FileHandle,
+	out *fuse.AttrOut,
+) syscall.Errno {
 	out.Mode = f.mode
 	out.Uid = currentUID
 	out.Gid = currentGID
@@ -342,7 +371,10 @@ func (f *fuseFile) Getattr(ctx context.Context, fh gofuse.FileHandle, out *fuse.
 	return 0
 }
 
-func (f *fuseFile) Open(ctx context.Context, flags uint32) (gofuse.FileHandle, uint32, syscall.Errno) {
+func (f *fuseFile) Open(
+	ctx context.Context,
+	flags uint32,
+) (gofuse.FileHandle, uint32, syscall.Errno) {
 	content, err := f.resolver.Resolve(f.name)
 	if err != nil {
 		slog.Error("resolve failed", "file", f.name, "error", err)
@@ -357,10 +389,16 @@ type secretHandle struct {
 	content []byte
 }
 
-var _ gofuse.FileReader = (*secretHandle)(nil)
-var _ gofuse.FileReleaser = (*secretHandle)(nil)
+var (
+	_ gofuse.FileReader   = (*secretHandle)(nil)
+	_ gofuse.FileReleaser = (*secretHandle)(nil)
+)
 
-func (h *secretHandle) Read(ctx context.Context, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
+func (h *secretHandle) Read(
+	ctx context.Context,
+	dest []byte,
+	off int64,
+) (fuse.ReadResult, syscall.Errno) {
 	end := min(int(off)+len(dest), len(h.content))
 	if int(off) >= len(h.content) {
 		return fuse.ReadResultData(nil), 0

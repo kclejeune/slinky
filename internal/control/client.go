@@ -53,7 +53,11 @@ func roundTrip[T any](socketPath string, req Request) (*T, error) {
 
 // Activate sends an activate request to the daemon. If session > 0, the
 // daemon tracks that PID as a reference holder for the activation.
-func (c *Client) Activate(dir string, env map[string]string, session int) (*ActivateResponse, error) {
+func (c *Client) Activate(
+	dir string,
+	env map[string]string,
+	session int,
+) (*ActivateResponse, error) {
 	return roundTrip[ActivateResponse](c.socketPath, Request{
 		Version: ProtocolVersion,
 		Type:    "activate",

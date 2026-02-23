@@ -39,7 +39,13 @@ func (m *Manager) Setup(cfg *config.Config, mountPoint string) error {
 		target := filepath.Join(mountPoint, name)
 		link := config.ExpandPath(fc.Symlink)
 
-		if err := m.createSymlink(target, link, mountPoint, string(cfg.Settings.Symlink.Conflict), cfg.Settings.Symlink.BackupExtension); err != nil {
+		if err := m.createSymlink(
+			target,
+			link,
+			mountPoint,
+			string(cfg.Settings.Symlink.Conflict),
+			cfg.Settings.Symlink.BackupExtension,
+		); err != nil {
 			return fmt.Errorf("creating symlink for %q: %w", name, err)
 		}
 
@@ -50,7 +56,10 @@ func (m *Manager) Setup(cfg *config.Config, mountPoint string) error {
 }
 
 // ReconcileWithConfig diffs managed symlinks against a new set of files.
-func (m *Manager) ReconcileWithConfig(newFiles map[string]*config.FileConfig, mountPoint, conflict, backupExt string) error {
+func (m *Manager) ReconcileWithConfig(
+	newFiles map[string]*config.FileConfig,
+	mountPoint, conflict, backupExt string,
+) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

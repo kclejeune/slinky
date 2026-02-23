@@ -39,14 +39,22 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("default cipher = %q, want %q", cfg.Settings.Cache.Cipher, CipherEphemeral)
 	}
 	if cfg.Settings.Cache.DefaultTTL != Duration(5*time.Minute) {
-		t.Errorf("default TTL = %v, want %v", cfg.Settings.Cache.DefaultTTL, Duration(5*time.Minute))
+		t.Errorf(
+			"default TTL = %v, want %v",
+			cfg.Settings.Cache.DefaultTTL,
+			Duration(5*time.Minute),
+		)
 	}
 }
 
 func TestLoadValidConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	tplFile := filepath.Join(tmpDir, "netrc.tpl")
-	if err := os.WriteFile(tplFile, []byte("machine github.com\n  login user\n  password token\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		tplFile,
+		[]byte("machine github.com\n  login user\n  password token\n"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,7 +236,11 @@ template = "` + tplFile + `"
 		t.Errorf("default conflict = %q, want %q", cfg.Settings.Symlink.Conflict, ConflictError)
 	}
 	if cfg.Settings.Symlink.BackupExtension != "~" {
-		t.Errorf("default backup_extension = %q, want %q", cfg.Settings.Symlink.BackupExtension, "~")
+		t.Errorf(
+			"default backup_extension = %q, want %q",
+			cfg.Settings.Symlink.BackupExtension,
+			"~",
+		)
 	}
 }
 
@@ -241,7 +253,12 @@ func TestValidateInvalidSymlinkConflict(t *testing.T) {
 }
 
 func TestProjectRoot(t *testing.T) {
-	configNames := []string{".slinky.toml", "slinky.toml", ".slinky/config.toml", "slinky/config.toml"}
+	configNames := []string{
+		".slinky.toml",
+		"slinky.toml",
+		".slinky/config.toml",
+		"slinky/config.toml",
+	}
 
 	// Direct file: .slinky.toml in /foo/bar → root is /foo/bar
 	root := ProjectRoot("/foo/bar/.slinky.toml", configNames)
@@ -270,7 +287,12 @@ func TestResolveProjectPath(t *testing.T) {
 
 func TestLoadProjectConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	configNames := []string{".slinky.toml", "slinky.toml", ".slinky/config.toml", "slinky/config.toml"}
+	configNames := []string{
+		".slinky.toml",
+		"slinky.toml",
+		".slinky/config.toml",
+		"slinky/config.toml",
+	}
 
 	tplFile := filepath.Join(tmpDir, "netrc.tpl")
 	if err := os.WriteFile(tplFile, []byte("test"), 0o644); err != nil {
@@ -498,7 +520,11 @@ symlink = "output/netrc"
 
 	fc := files["netrc"]
 	if fc.Template != filepath.Join(tmpDir, "templates", "netrc.tpl") {
-		t.Errorf("Template = %q, want %q", fc.Template, filepath.Join(tmpDir, "templates", "netrc.tpl"))
+		t.Errorf(
+			"Template = %q, want %q",
+			fc.Template,
+			filepath.Join(tmpDir, "templates", "netrc.tpl"),
+		)
 	}
 	if fc.Symlink != filepath.Join(tmpDir, "output", "netrc") {
 		t.Errorf("Symlink = %q, want %q", fc.Symlink, filepath.Join(tmpDir, "output", "netrc"))

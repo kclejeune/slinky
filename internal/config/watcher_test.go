@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func writeValidConfig(t *testing.T, dir string, extra string) string {
+func writeValidConfig(t *testing.T, dir, extra string) string {
 	t.Helper()
 	tplFile := filepath.Join(dir, "test.tpl")
 	if _, err := os.Stat(tplFile); os.IsNotExist(err) {

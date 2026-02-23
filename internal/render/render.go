@@ -29,7 +29,12 @@ const Timeout = 10 * time.Second
 type EnvLookup func(string) (string, bool)
 
 type TemplateRenderer interface {
-	Render(name string, cfg *config.FileConfig, envLookup EnvLookup, envOverrides map[string]string) ([]byte, error)
+	Render(
+		name string,
+		cfg *config.FileConfig,
+		envLookup EnvLookup,
+		envOverrides map[string]string,
+	) ([]byte, error)
 }
 
 var sharedNativeRenderer = &NativeRenderer{}
@@ -88,7 +93,12 @@ func (r *NativeRenderer) loadTemplate(tplPath string) (string, error) {
 	return text, nil
 }
 
-func (r *NativeRenderer) Render(name string, cfg *config.FileConfig, envLookup EnvLookup, envOverrides map[string]string) ([]byte, error) {
+func (r *NativeRenderer) Render(
+	name string,
+	cfg *config.FileConfig,
+	envLookup EnvLookup,
+	envOverrides map[string]string,
+) ([]byte, error) {
 	tplPath := config.ExpandPath(cfg.Template)
 	tplText, err := r.loadTemplate(tplPath)
 	if err != nil {
@@ -182,7 +192,12 @@ func makeExecFunc(envOverrides map[string]string) func(string, ...string) (strin
 		cmd.Stderr = &stderr
 
 		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("exec %q: %w (stderr: %s)", name, err, strings.TrimSpace(stderr.String()))
+			return "", fmt.Errorf(
+				"exec %q: %w (stderr: %s)",
+				name,
+				err,
+				strings.TrimSpace(stderr.String()),
+			)
 		}
 
 		return strings.TrimRight(stdout.String(), "\n"), nil
@@ -191,7 +206,12 @@ func makeExecFunc(envOverrides map[string]string) func(string, ...string) (strin
 
 type CommandRenderer struct{}
 
-func (r *CommandRenderer) Render(_ string, cfg *config.FileConfig, _ EnvLookup, envOverrides map[string]string) ([]byte, error) {
+func (r *CommandRenderer) Render(
+	_ string,
+	cfg *config.FileConfig,
+	_ EnvLookup,
+	envOverrides map[string]string,
+) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
 	defer cancel()
 
@@ -213,7 +233,12 @@ func (r *CommandRenderer) Render(_ string, cfg *config.FileConfig, _ EnvLookup, 
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("command %q: %w (stderr: %s)", cfg.Command, err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf(
+			"command %q: %w (stderr: %s)",
+			cfg.Command,
+			err,
+			strings.TrimSpace(stderr.String()),
+		)
 	}
 
 	return stdout.Bytes(), nil

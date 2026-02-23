@@ -21,7 +21,11 @@ type ConfigWatcher struct {
 	current *Config
 }
 
-func NewConfigWatcher(path string, initial *Config, onReload func(old, new *Config, diff *DiffResult)) (*ConfigWatcher, error) {
+func NewConfigWatcher(
+	path string,
+	initial *Config,
+	onReload func(old, new *Config, diff *DiffResult),
+) (*ConfigWatcher, error) {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -66,7 +70,9 @@ func (cw *ConfigWatcher) Run() {
 				continue
 			}
 
-			if !event.Has(fsnotify.Write) && !event.Has(fsnotify.Create) && !event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
+			if !event.Has(fsnotify.Write) && !event.Has(fsnotify.Create) &&
+				!event.Has(fsnotify.Remove) &&
+				!event.Has(fsnotify.Rename) {
 				continue
 			}
 

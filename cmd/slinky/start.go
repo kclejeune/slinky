@@ -40,8 +40,13 @@ func startCmd() *cobra.Command {
 		Short:   "Start the daemon in the background",
 		GroupID: "daemon",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if mountBackend != "" && mountBackend != "auto" && mountBackend != "fuse" && mountBackend != "tmpfs" && mountBackend != "fifo" {
-				return fmt.Errorf("invalid mount backend %q: must be \"auto\", \"fuse\", \"tmpfs\", or \"fifo\"", mountBackend)
+			if mountBackend != "" && mountBackend != "auto" && mountBackend != "fuse" &&
+				mountBackend != "tmpfs" &&
+				mountBackend != "fifo" {
+				return fmt.Errorf(
+					"invalid mount backend %q: must be \"auto\", \"fuse\", \"tmpfs\", or \"fifo\"",
+					mountBackend,
+				)
 			}
 
 			if foreground {
@@ -52,8 +57,10 @@ func startCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&foreground, "foreground", "f", false, "run in the foreground instead of daemonizing")
-	cmd.Flags().StringVarP(&mountBackend, "mount", "m", "", "mount backend (auto, fuse, tmpfs, fifo); overrides config")
+	cmd.Flags().
+		BoolVarP(&foreground, "foreground", "f", false, "run in the foreground instead of daemonizing")
+	cmd.Flags().
+		StringVarP(&mountBackend, "mount", "m", "", "mount backend (auto, fuse, tmpfs, fifo); overrides config")
 	return cmd
 }
 
@@ -65,15 +72,21 @@ func runCmd() *cobra.Command {
 		Short:   "Run the daemon in the foreground",
 		GroupID: "daemon",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if mountBackend != "" && mountBackend != "auto" && mountBackend != "fuse" && mountBackend != "tmpfs" && mountBackend != "fifo" {
-				return fmt.Errorf("invalid mount backend %q: must be \"auto\", \"fuse\", \"tmpfs\", or \"fifo\"", mountBackend)
+			if mountBackend != "" && mountBackend != "auto" && mountBackend != "fuse" &&
+				mountBackend != "tmpfs" &&
+				mountBackend != "fifo" {
+				return fmt.Errorf(
+					"invalid mount backend %q: must be \"auto\", \"fuse\", \"tmpfs\", or \"fifo\"",
+					mountBackend,
+				)
 			}
 
 			return runForeground(mountBackend)
 		},
 	}
 
-	cmd.Flags().StringVarP(&mountBackend, "mount", "m", "", "mount backend (auto, fuse, tmpfs, fifo); overrides config")
+	cmd.Flags().
+		StringVarP(&mountBackend, "mount", "m", "", "mount backend (auto, fuse, tmpfs, fifo); overrides config")
 	return cmd
 }
 
@@ -119,28 +132,37 @@ func runForeground(mountBackend string) error {
 	configNames := slinkycontext.ResolveProjectConfigNames(cfg)
 	var backend mount.Backend
 	var tplWatcher *render.Watcher
-	ctxMgr := slinkycontext.NewManager(cfg, configNames, func(eff map[string]*slinkycontext.EffectiveFile) {
-		latestCfg := currentCfg.Load()
-		files := make(map[string]*config.FileConfig, len(eff))
-		for name, ef := range eff {
-			files[name] = ef.FileConfig
-		}
-		if err := symlinkMgr.ReconcileWithConfig(files, latestCfg.Settings.Mount.MountPoint, string(latestCfg.Settings.Symlink.Conflict), latestCfg.Settings.Symlink.BackupExtension); err != nil {
-			slog.Error("symlink reconcile failed", "error", err)
-		}
-		if backend != nil {
-			if err := backend.Reconfigure(); err != nil {
-				slog.Error("backend reconfigure failed", "error", err)
+	ctxMgr := slinkycontext.NewManager(
+		cfg,
+		configNames,
+		func(eff map[string]*slinkycontext.EffectiveFile) {
+			latestCfg := currentCfg.Load()
+			files := make(map[string]*config.FileConfig, len(eff))
+			for name, ef := range eff {
+				files[name] = ef.FileConfig
 			}
-		}
-		if tplWatcher != nil {
-			for _, fc := range files {
-				if fc.Template != "" {
-					tplWatcher.Watch(config.ExpandPath(fc.Template))
+			if err := symlinkMgr.ReconcileWithConfig(
+				files,
+				latestCfg.Settings.Mount.MountPoint,
+				string(latestCfg.Settings.Symlink.Conflict),
+				latestCfg.Settings.Symlink.BackupExtension,
+			); err != nil {
+				slog.Error("symlink reconcile failed", "error", err)
+			}
+			if backend != nil {
+				if err := backend.Reconfigure(); err != nil {
+					slog.Error("backend reconfigure failed", "error", err)
 				}
 			}
-		}
-	})
+			if tplWatcher != nil {
+				for _, fc := range files {
+					if fc.Template != "" {
+						tplWatcher.Watch(config.ExpandPath(fc.Template))
+					}
+				}
+			}
+		},
+	)
 
 	ctxMgr.SetTrustStore(trustStore)
 
@@ -215,7 +237,11 @@ func runForeground(mountBackend string) error {
 		Name: "update-global-context",
 		Kind: reload.Callback,
 		Match: func(diff *config.DiffResult) bool {
-			return diff.FilesChanged() || !slices.Equal(diff.OldSettings.ProjectConfigNames, diff.NewSettings.ProjectConfigNames)
+			return diff.FilesChanged() ||
+				!slices.Equal(
+					diff.OldSettings.ProjectConfigNames,
+					diff.NewSettings.ProjectConfigNames,
+				)
 		},
 		Handle: func(_, new *config.Config, _ *config.DiffResult) {
 			newConfigNames := slinkycontext.ResolveProjectConfigNames(new)
@@ -228,12 +254,21 @@ func runForeground(mountBackend string) error {
 		Name: "reconcile-symlinks-and-backend",
 		Kind: reload.Callback,
 		Match: func(diff *config.DiffResult) bool {
-			return diff.HasChanges() && !diff.FilesChanged() && slices.Equal(diff.OldSettings.ProjectConfigNames, diff.NewSettings.ProjectConfigNames)
+			return diff.HasChanges() && !diff.FilesChanged() &&
+				slices.Equal(
+					diff.OldSettings.ProjectConfigNames,
+					diff.NewSettings.ProjectConfigNames,
+				)
 		},
 		Handle: func(_, _ *config.Config, _ *config.DiffResult) {
 			latestCfg := currentCfg.Load()
 			files := ctxMgr.EffectiveFileConfigs()
-			if err := symlinkMgr.ReconcileWithConfig(files, latestCfg.Settings.Mount.MountPoint, string(latestCfg.Settings.Symlink.Conflict), latestCfg.Settings.Symlink.BackupExtension); err != nil {
+			if err := symlinkMgr.ReconcileWithConfig(
+				files,
+				latestCfg.Settings.Mount.MountPoint,
+				string(latestCfg.Settings.Symlink.Conflict),
+				latestCfg.Settings.Symlink.BackupExtension,
+			); err != nil {
 				slog.Error("symlink reconcile after config reload failed", "error", err)
 			}
 			if err := backend.Reconfigure(); err != nil {
@@ -283,7 +318,8 @@ func runForeground(mountBackend string) error {
 		Name: "restart-mount",
 		Kind: reload.Kill,
 		Match: func(diff *config.DiffResult) bool {
-			return diff.OldSettings.Mount.Backend != diff.NewSettings.Mount.Backend || diff.OldSettings.Mount.MountPoint != diff.NewSettings.Mount.MountPoint
+			return diff.OldSettings.Mount.Backend != diff.NewSettings.Mount.Backend ||
+				diff.OldSettings.Mount.MountPoint != diff.NewSettings.Mount.MountPoint
 		},
 	})
 

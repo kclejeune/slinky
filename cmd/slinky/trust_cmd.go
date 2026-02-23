@@ -126,7 +126,8 @@ revoke trust for configs in parent directories.`,
 		},
 	}
 
-	cmd.Flags().BoolVarP(&all, "all", "a", false, "revoke trust for configs in parent directories too")
+	cmd.Flags().
+		BoolVarP(&all, "all", "a", false, "revoke trust for configs in parent directories too")
 	return cmd
 }
 

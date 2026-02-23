@@ -82,7 +82,9 @@ func (r *SecretResolver) RenderOnly(name string) ([]byte, error) {
 }
 
 // lookupFile returns the file config, env map, and env lookup for the named file.
-func (r *SecretResolver) lookupFile(name string) (*config.FileConfig, map[string]string, render.EnvLookup, error) {
+func (r *SecretResolver) lookupFile(
+	name string,
+) (*config.FileConfig, map[string]string, render.EnvLookup, error) {
 	if r.ctxMgr != nil {
 		eff := r.ctxMgr.Effective()
 		if ef, ok := eff[name]; ok {
@@ -98,7 +100,13 @@ func (r *SecretResolver) lookupFile(name string) (*config.FileConfig, map[string
 	return fc, nil, nil, nil
 }
 
-func (r *SecretResolver) renderAndCache(name string, fc *config.FileConfig, keyStr string, envLookup render.EnvLookup, envMap map[string]string) ([]byte, error) {
+func (r *SecretResolver) renderAndCache(
+	name string,
+	fc *config.FileConfig,
+	keyStr string,
+	envLookup render.EnvLookup,
+	envMap map[string]string,
+) ([]byte, error) {
 	renderer := render.NewRenderer(fc)
 	content, err := renderer.Render(name, fc, envLookup, envMap)
 	if err != nil {
@@ -114,7 +122,13 @@ func (r *SecretResolver) renderAndCache(name string, fc *config.FileConfig, keyS
 	return content, nil
 }
 
-func (r *SecretResolver) asyncRefresh(name string, fc *config.FileConfig, keyStr string, envLookup render.EnvLookup, envMap map[string]string) {
+func (r *SecretResolver) asyncRefresh(
+	name string,
+	fc *config.FileConfig,
+	keyStr string,
+	envLookup render.EnvLookup,
+	envMap map[string]string,
+) {
 	r.mu.Lock()
 	if r.refreshing[name] {
 		r.mu.Unlock()

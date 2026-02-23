@@ -101,7 +101,8 @@ directory. Use -g/--global to create the global config instead.`,
 		},
 	}
 
-	cmd.Flags().BoolVarP(&global, "global", "g", false, "create the global config instead of a project config")
+	cmd.Flags().
+		BoolVarP(&global, "global", "g", false, "create the global config instead of a project config")
 	return cmd
 }
 
@@ -196,7 +197,8 @@ file set with which layer contributes each file (deepest wins).`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&dir, "directory", "d", "", "directory to resolve from (default: current directory)")
+	cmd.Flags().
+		StringVarP(&dir, "directory", "d", "", "directory to resolve from (default: current directory)")
 
 	cmd.AddCommand(cfgInitCmd())
 	cmd.AddCommand(cfgEditCmd())
@@ -280,7 +282,8 @@ and template parsing. Exits non-zero if any errors are found.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&dir, "directory", "d", "", "directory to resolve project configs from (default: current directory)")
+	cmd.Flags().
+		StringVarP(&dir, "directory", "d", "", "directory to resolve project configs from (default: current directory)")
 	return cmd
 }
 
@@ -473,7 +476,13 @@ func cacheCmd() *cobra.Command {
 				keys := slices.Sorted(maps.Keys(resp.Entries))
 				for _, k := range keys {
 					info := resp.Entries[k]
-					fmt.Printf("  %-30s  age=%-10s ttl=%-10s %s\n", k, info.Age, info.TTL, info.State)
+					fmt.Printf(
+						"  %-30s  age=%-10s ttl=%-10s %s\n",
+						k,
+						info.Age,
+						info.TTL,
+						info.State,
+					)
 				}
 			}
 			return nil

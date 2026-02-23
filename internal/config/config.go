@@ -201,11 +201,17 @@ func (c *Config) Validate() error {
 	switch c.Settings.Symlink.Conflict {
 	case ConflictError, ConflictBackup:
 	default:
-		return fmt.Errorf("unsupported symlink conflict mode: %q (must be \"error\" or \"backup\")", c.Settings.Symlink.Conflict)
+		return fmt.Errorf(
+			"unsupported symlink conflict mode: %q (must be \"error\" or \"backup\")",
+			c.Settings.Symlink.Conflict,
+		)
 	}
 
 	if c.Settings.Cache.DefaultTTL <= 0 {
-		return fmt.Errorf("default_ttl must be positive, got %v", c.Settings.Cache.DefaultTTL.Duration())
+		return fmt.Errorf(
+			"default_ttl must be positive, got %v",
+			c.Settings.Cache.DefaultTTL.Duration(),
+		)
 	}
 
 	for name, fc := range c.Files {
@@ -385,7 +391,11 @@ func LoadProjectConfig(path string, configNames []string) (map[string]*FileConfi
 // ParseProjectConfig parses a project config from already-read bytes.
 // This is used when the file has already been read for trust verification,
 // avoiding a TOCTOU window between trust check and parse.
-func ParseProjectConfig(path string, data []byte, configNames []string) (map[string]*FileConfig, error) {
+func ParseProjectConfig(
+	path string,
+	data []byte,
+	configNames []string,
+) (map[string]*FileConfig, error) {
 	path = ExpandPath(path)
 
 	var pc ProjectConfig
@@ -394,7 +404,10 @@ func ParseProjectConfig(path string, data []byte, configNames []string) (map[str
 	}
 
 	if pc.Settings != nil {
-		return nil, fmt.Errorf("project config %q: [settings] is not allowed in project configs (daemon-global setting)", path)
+		return nil, fmt.Errorf(
+			"project config %q: [settings] is not allowed in project configs (daemon-global setting)",
+			path,
+		)
 	}
 
 	if pc.Files == nil {

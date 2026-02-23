@@ -51,7 +51,11 @@ func (a *ageCipher) Decrypt(ciphertext []byte) ([]byte, error) {
 // newPersistedAgeCipher loads an existing identity from a credential store,
 // or generates and persists a new one. Corrupt stored identities are deleted
 // and regenerated.
-func newPersistedAgeCipher(load func() (string, error), store func(string) error, deleteFn func()) (ageCipher, error) {
+func newPersistedAgeCipher(
+	load func() (string, error),
+	store func(string) error,
+	deleteFn func(),
+) (ageCipher, error) {
 	idStr, err := load()
 	if err == nil {
 		id, parseErr := age.ParseX25519Identity(idStr)

@@ -34,7 +34,8 @@ func main() {
 		return nil
 	}
 
-	root.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file (default: ~/.config/slinky/config.toml)")
+	root.PersistentFlags().
+		StringVarP(&cfgFile, "config", "c", "", "config file (default: ~/.config/slinky/config.toml)")
 	root.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug logging")
 	root.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "suppress informational output")
 	root.MarkFlagsMutuallyExclusive("verbose", "quiet")

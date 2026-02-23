@@ -84,7 +84,10 @@ func TestExtractEnvVarsPiped(t *testing.T) {
 }
 
 func TestExtractEnvVarsIfElse(t *testing.T) {
-	path := writeTpl(t, `{{ if env "ENABLE" }}on{{ else }}{{ envDefault "FALLBACK" "off" }}{{ end }}`)
+	path := writeTpl(
+		t,
+		`{{ if env "ENABLE" }}on{{ else }}{{ envDefault "FALLBACK" "off" }}{{ end }}`,
+	)
 	cfg := &config.FileConfig{Render: "native", Template: path}
 
 	vars := ExtractEnvVars("test", cfg)

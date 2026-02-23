@@ -12,7 +12,11 @@ import (
 func TestNativeRendererEnv(t *testing.T) {
 	tmpDir := t.TempDir()
 	tplFile := filepath.Join(tmpDir, "test.tpl")
-	if err := os.WriteFile(tplFile, []byte(`token={{ env "TEST_SECRET_TOKEN" }}`), 0o644); err != nil {
+	if err := os.WriteFile(
+		tplFile,
+		[]byte(`token={{ env "TEST_SECRET_TOKEN" }}`),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -34,7 +38,11 @@ func TestNativeRendererEnv(t *testing.T) {
 func TestNativeRendererEnvMissing(t *testing.T) {
 	tmpDir := t.TempDir()
 	tplFile := filepath.Join(tmpDir, "test.tpl")
-	if err := os.WriteFile(tplFile, []byte(`{{ env "DEFINITELY_NOT_SET_12345" }}`), 0o644); err != nil {
+	if err := os.WriteFile(
+		tplFile,
+		[]byte(`{{ env "DEFINITELY_NOT_SET_12345" }}`),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -50,7 +58,11 @@ func TestNativeRendererEnvMissing(t *testing.T) {
 func TestNativeRendererEnvDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 	tplFile := filepath.Join(tmpDir, "test.tpl")
-	if err := os.WriteFile(tplFile, []byte(`host={{ envDefault "UNSET_HOST_VAR_12345" "fallback.example.com" }}`), 0o644); err != nil {
+	if err := os.WriteFile(
+		tplFile,
+		[]byte(`host={{ envDefault "UNSET_HOST_VAR_12345" "fallback.example.com" }}`),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -76,7 +88,11 @@ func TestNativeRendererFile(t *testing.T) {
 	}
 
 	tplFile := filepath.Join(tmpDir, "test.tpl")
-	if err := os.WriteFile(tplFile, []byte(`data={{ file "`+dataFile+`" | trimAll "\n" }}`), 0o644); err != nil {
+	if err := os.WriteFile(
+		tplFile,
+		[]byte(`data={{ file "`+dataFile+`" | trimAll "\n" }}`),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 

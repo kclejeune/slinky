@@ -84,7 +84,11 @@ func (m *Manager) SetTrustStore(ts *trust.Store) {
 	m.trustStore = ts
 }
 
-func NewManager(globalCfg *config.Config, configNames []string, onChange func(map[string]*EffectiveFile)) *Manager {
+func NewManager(
+	globalCfg *config.Config,
+	configNames []string,
+	onChange func(map[string]*EffectiveFile),
+) *Manager {
 	globalLayer := &Layer{
 		Dir:   "",
 		Files: globalCfg.Files,
@@ -152,9 +156,21 @@ func (m *Manager) RefreshActivation(dir string) error {
 			m.effective = effective
 			m.mu.Unlock()
 			if verifyErr != nil {
-				slog.Warn("trust check failed during refresh, deactivating", "dir", dir, "error", verifyErr)
+				slog.Warn(
+					"trust check failed during refresh, deactivating",
+					"dir",
+					dir,
+					"error",
+					verifyErr,
+				)
 			} else {
-				slog.Warn("project config no longer trusted, deactivating", "dir", dir, "path", untrusted)
+				slog.Warn(
+					"project config no longer trusted, deactivating",
+					"dir",
+					dir,
+					"path",
+					untrusted,
+				)
 				verifyErr = fmt.Errorf("project config no longer trusted: %s", untrusted)
 			}
 			if m.onChange != nil {
@@ -170,7 +186,13 @@ func (m *Manager) RefreshActivation(dir string) error {
 		for _, vf := range verifiedFiles {
 			files, loadErr := config.ParseProjectConfig(vf.Path, vf.Data, m.configNames)
 			if loadErr != nil {
-				slog.Warn("skipping invalid project config during refresh", "path", vf.Path, "error", loadErr)
+				slog.Warn(
+					"skipping invalid project config during refresh",
+					"path",
+					vf.Path,
+					"error",
+					loadErr,
+				)
 				continue
 			}
 			layers = append(layers, &Layer{
@@ -183,7 +205,13 @@ func (m *Manager) RefreshActivation(dir string) error {
 		for _, p := range paths {
 			files, loadErr := config.LoadProjectConfig(p, m.configNames)
 			if loadErr != nil {
-				slog.Warn("skipping invalid project config during refresh", "path", p, "error", loadErr)
+				slog.Warn(
+					"skipping invalid project config during refresh",
+					"path",
+					p,
+					"error",
+					loadErr,
+				)
 				continue
 			}
 			layers = append(layers, &Layer{
@@ -285,7 +313,11 @@ func (m *Manager) Activate(dir string, env map[string]string, pid int) ([]string
 			return nil, fmt.Errorf("trust check: %w", err)
 		}
 		if untrusted != "" {
-			return nil, fmt.Errorf("%w: %s (run \"slinky allow\" in the project directory to trust it)", trust.ErrUntrusted, untrusted)
+			return nil, fmt.Errorf(
+				"%w: %s (run \"slinky allow\" in the project directory to trust it)",
+				trust.ErrUntrusted,
+				untrusted,
+			)
 		}
 	}
 
@@ -558,7 +590,12 @@ func (m *Manager) recompute() (map[string]*EffectiveFile, error) {
 		act := m.activations[d]
 		for name, ef := range act.overrides {
 			if owner, claimed := owners[name]; claimed && owner != d {
-				return nil, fmt.Errorf("conflict: file %q is defined by both %q and %q", name, owner, d)
+				return nil, fmt.Errorf(
+					"conflict: file %q is defined by both %q and %q",
+					name,
+					owner,
+					d,
+				)
 			}
 			owners[name] = d
 			effective[name] = ef

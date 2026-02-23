@@ -42,7 +42,10 @@ the parent process.`,
 				var err error
 				shell, err = detectShell()
 				if err != nil {
-					return fmt.Errorf("cannot detect shell: %w\nSpecify the shell explicitly: slinky config hook bash", err)
+					return fmt.Errorf(
+						"cannot detect shell: %w\nSpecify the shell explicitly: slinky config hook bash",
+						err,
+					)
 				}
 			}
 
@@ -54,7 +57,10 @@ the parent process.`,
 			case "fish":
 				fmt.Print(fishHook)
 			default:
-				return fmt.Errorf("unsupported shell %q: supported shells are bash, zsh, fish", shell)
+				return fmt.Errorf(
+					"unsupported shell %q: supported shells are bash, zsh, fish",
+					shell,
+				)
 			}
 			return nil
 		},

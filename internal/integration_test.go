@@ -24,7 +24,13 @@ func TestDaemonLifecycleIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	tplFile := filepath.Join(tplDir, "netrc.tpl")
-	if err := os.WriteFile(tplFile, []byte("machine github.com\n  login {{ env \"TEST_USER\" }}\n  password {{ env \"TEST_TOKEN\" }}\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		tplFile,
+		[]byte(
+			"machine github.com\n  login {{ env \"TEST_USER\" }}\n  password {{ env \"TEST_TOKEN\" }}\n",
+		),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,7 +57,11 @@ func TestDaemonLifecycleIntegration(t *testing.T) {
 template = "` + tplFile + `"
 mode = 384
 `
-	if err := os.WriteFile(filepath.Join(projDir, ".slinky.toml"), []byte(projConfig), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(projDir, ".slinky.toml"),
+		[]byte(projConfig),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 

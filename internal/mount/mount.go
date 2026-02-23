@@ -27,7 +27,11 @@ type Backend interface {
 
 // NewBackend creates a mount backend based on the config.
 // When the backend is "auto", it tries FUSE first, then tmpfs, then falls back to FIFO.
-func NewBackend(cfg *config.Config, r *resolver.SecretResolver, ctxMgr *slinkycontext.Manager) (Backend, error) {
+func NewBackend(
+	cfg *config.Config,
+	r *resolver.SecretResolver,
+	ctxMgr *slinkycontext.Manager,
+) (Backend, error) {
 	backend := cfg.Settings.Mount.Backend
 	if backend == config.BackendAuto {
 		backend = resolveAutoBackend()
@@ -67,8 +71,10 @@ func FUSEAvailable() bool {
 		// macOS: only macFUSE is supported. FUSE-T (kext-free alternative)
 		// uses a stream-based NFS translation protocol that requires cgo
 		// support in the go-fuse library, which is not available.
-		for _, path := range []string{"/dev/macfuse0", "/dev/osxfuse0",
-			"/Library/Filesystems/macfuse.fs", "/Library/Filesystems/osxfuse.fs"} {
+		for _, path := range []string{
+			"/dev/macfuse0", "/dev/osxfuse0",
+			"/Library/Filesystems/macfuse.fs", "/Library/Filesystems/osxfuse.fs",
+		} {
 			if _, err := os.Stat(path); err == nil {
 				return true
 			}

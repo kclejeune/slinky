@@ -35,7 +35,12 @@ func keyctlLoad() (string, error) {
 }
 
 func keyctlStore(identity string) error {
-	keyID, err := unix.AddKey("user", keyctlDescription, []byte(identity), unix.KEY_SPEC_USER_KEYRING)
+	keyID, err := unix.AddKey(
+		"user",
+		keyctlDescription,
+		[]byte(identity),
+		unix.KEY_SPEC_USER_KEYRING,
+	)
 	if err != nil {
 		return fmt.Errorf("keyctl add: %w", err)
 	}

@@ -20,10 +20,18 @@ func TestDiscoverLayers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(orgDir, DefaultProjectConfigNames[0]), []byte("[files.netrc]\ntemplate = \"tpl\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(orgDir, DefaultProjectConfigNames[0]),
+		[]byte("[files.netrc]\ntemplate = \"tpl\"\n"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(subDir, DefaultProjectConfigNames[0]), []byte("[files.npmrc]\ntemplate = \"tpl\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(subDir, DefaultProjectConfigNames[0]),
+		[]byte("[files.npmrc]\ntemplate = \"tpl\"\n"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -102,13 +110,25 @@ func TestMergeDeeperWinsPerFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	orgConfig := fmt.Sprintf("[files.netrc]\ntemplate = %q\nmode = 384\n[files.\"docker/config.json\"]\ntemplate = %q\nmode = 384\n", orgTpl, dockerTpl)
-	if err := os.WriteFile(filepath.Join(orgDir, DefaultProjectConfigNames[0]), []byte(orgConfig), 0o644); err != nil {
+	orgConfig := fmt.Sprintf(
+		"[files.netrc]\ntemplate = %q\nmode = 384\n[files.\"docker/config.json\"]\ntemplate = %q\nmode = 384\n",
+		orgTpl,
+		dockerTpl,
+	)
+	if err := os.WriteFile(
+		filepath.Join(orgDir, DefaultProjectConfigNames[0]),
+		[]byte(orgConfig),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
 	subConfig := fmt.Sprintf("[files.npmrc]\ntemplate = %q\nmode = 384\n", subTpl)
-	if err := os.WriteFile(filepath.Join(subDir, DefaultProjectConfigNames[0]), []byte(subConfig), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(subDir, DefaultProjectConfigNames[0]),
+		[]byte(subConfig),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -139,7 +159,11 @@ func TestMergeDeeperWinsPerFile(t *testing.T) {
 	}
 
 	if effective["docker/config.json"].Template != dockerTpl {
-		t.Errorf("docker template = %q, want %q", effective["docker/config.json"].Template, dockerTpl)
+		t.Errorf(
+			"docker template = %q, want %q",
+			effective["docker/config.json"].Template,
+			dockerTpl,
+		)
 	}
 
 	if len(effective) != 3 {
@@ -183,7 +207,11 @@ func TestActivateUpdatesEffective(t *testing.T) {
 template = "` + tplC + `"
 mode = 384
 `
-	if err := os.WriteFile(filepath.Join(projDir, DefaultProjectConfigNames[0]), []byte(projConfig), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(projDir, DefaultProjectConfigNames[0]),
+		[]byte(projConfig),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -288,7 +316,11 @@ func TestActivateFiltersEnv(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tplPath := filepath.Join(tmpDir, "netrc.tpl")
-	if err := os.WriteFile(tplPath, []byte(`machine github.com password {{ env "GITHUB_TOKEN" }}`), 0o644); err != nil {
+	if err := os.WriteFile(
+		tplPath,
+		[]byte(`machine github.com password {{ env "GITHUB_TOKEN" }}`),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -306,7 +338,11 @@ func TestActivateFiltersEnv(t *testing.T) {
 template = "` + tplPath + `"
 mode = 384
 `
-	if err := os.WriteFile(filepath.Join(projDir, DefaultProjectConfigNames[0]), []byte(projConfig), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(projDir, DefaultProjectConfigNames[0]),
+		[]byte(projConfig),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -348,7 +384,6 @@ func TestActivateCommandModePreservesAllowlistEnv(t *testing.T) {
 	globalCfg := &config.Config{
 		Files: map[string]*config.FileConfig{
 			"secret": {
-
 				Render:  "command",
 				Command: "echo",
 				Args:    []string{"hello"},
@@ -411,7 +446,11 @@ func TestActivateConcurrentSafe(t *testing.T) {
 			t.Fatal(err)
 		}
 		projConfig := fmt.Sprintf("[files.\"file-%d\"]\ntemplate = %q\nmode = 384\n", i, tplPath)
-		if err := os.WriteFile(filepath.Join(dir, DefaultProjectConfigNames[0]), []byte(projConfig), 0o644); err != nil {
+		if err := os.WriteFile(
+			filepath.Join(dir, DefaultProjectConfigNames[0]),
+			[]byte(projConfig),
+			0o644,
+		); err != nil {
 			t.Fatal(err)
 		}
 		dirs[i] = dir
@@ -1172,8 +1211,15 @@ func TestActivateAutoDeactivatesAncestor(t *testing.T) {
 	if err := os.WriteFile(tplParent, []byte("p"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(parentDir, DefaultProjectConfigNames[0]),
-		fmt.Appendf(nil, "[files.netrc]\ntemplate = %q\nmode = 384\n", tplParent), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(parentDir, DefaultProjectConfigNames[0]),
+		fmt.Appendf(
+			nil,
+			"[files.netrc]\ntemplate = %q\nmode = 384\n",
+			tplParent,
+		),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1181,8 +1227,15 @@ func TestActivateAutoDeactivatesAncestor(t *testing.T) {
 	if err := os.WriteFile(tplChild, []byte("c"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(childDir, DefaultProjectConfigNames[0]),
-		fmt.Appendf(nil, "[files.npmrc]\ntemplate = %q\nmode = 384\n", tplChild), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(childDir, DefaultProjectConfigNames[0]),
+		fmt.Appendf(
+			nil,
+			"[files.npmrc]\ntemplate = %q\nmode = 384\n",
+			tplChild,
+		),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1306,7 +1359,11 @@ func TestRefreshActivationReloadsProjectConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	projConfig := fmt.Sprintf("[files.netrc]\ntemplate = %q\nmode = 384\n", tplFile)
-	if err := os.WriteFile(filepath.Join(projDir, DefaultProjectConfigNames[0]), []byte(projConfig), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(projDir, DefaultProjectConfigNames[0]),
+		[]byte(projConfig),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1324,8 +1381,16 @@ func TestRefreshActivationReloadsProjectConfig(t *testing.T) {
 	if err := os.WriteFile(tpl2, []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	projConfig2 := fmt.Sprintf("[files.netrc]\ntemplate = %q\nmode = 384\n[files.npmrc]\ntemplate = %q\nmode = 384\n", tplFile, tpl2)
-	if err := os.WriteFile(filepath.Join(projDir, DefaultProjectConfigNames[0]), []byte(projConfig2), 0o644); err != nil {
+	projConfig2 := fmt.Sprintf(
+		"[files.netrc]\ntemplate = %q\nmode = 384\n[files.npmrc]\ntemplate = %q\nmode = 384\n",
+		tplFile,
+		tpl2,
+	)
+	if err := os.WriteFile(
+		filepath.Join(projDir, DefaultProjectConfigNames[0]),
+		[]byte(projConfig2),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 

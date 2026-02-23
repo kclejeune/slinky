@@ -138,7 +138,9 @@ type VerifiedFile struct {
 // the trust store, and returns the verified file contents. This avoids the
 // TOCTOU window of checking trust then re-reading the file separately.
 // Returns the first untrusted path if any file fails verification.
-func (s *Store) ReadAndVerifyPaths(paths []string) (files []VerifiedFile, untrusted string, err error) {
+func (s *Store) ReadAndVerifyPaths(
+	paths []string,
+) (files []VerifiedFile, untrusted string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

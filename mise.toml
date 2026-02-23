@@ -2,43 +2,23 @@
 d2 = "0.7"
 go = "1.26"
 golangci-lint = "2.10"
+goreleaser = "2.13.3"
 prek = "0.3"
 
 [env]
 CGO_ENABLED = "0"
 D2_LAYOUT = "elk"
 
-[tasks.fmt]
-description = "Run formatter"
-sources = [
-  "**/*.go",
-  "go.mod",
-  "go.sum",
-]
-run = "golangci-lint fmt"
-
-[tasks.fix]
-description = "Run go fix"
+[tasks.lint]
+description = "Run linter"
 sources = [
   "**/*.go",
   "go.mod",
   "go.sum",
 ]
 run = [
-  "go vet -fix ./...",
-  "go fix ./...",
-  "mise run fmt",
+  "golangci-lint run --fix",
 ]
-
-[tasks.lint]
-description = "Run linter"
-depends = ["fix"]
-sources = [
-  "**/*.go",
-  "go.mod",
-  "go.sum",
-]
-run = "golangci-lint run --fix"
 
 [tasks.test]
 description = "Run all tests"
@@ -50,16 +30,13 @@ sources = [
 run = "go test -race ./..."
 
 [tasks.check]
-description = "Run tests, lint, format, and fix"
+description = "Run lint, fmt, and tests"
 sources = [
   "**/*.go",
   "go.mod",
   "go.sum",
 ]
-run = [
-  "mise run lint",
-  "mise run test",
-]
+depends = ["lint", "test"]
 
 [tasks.clean]
 description = "Remove build artifacts"

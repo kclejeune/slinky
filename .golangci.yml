@@ -23,3 +23,20 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+  enable:
+    - goimports
+    - golines
+    - gofumpt
+  settings:
+    gofumpt:
+      module-path: github.com/kclejeune/slinky
+      extra-rules: true
+    golines:
+      max-len: 100
+      tab-len: 4
+      shorten-comments: true
+      reformat-tags: true
+      chain-split-dots: true
+    goimports:
+      local-prefixes:
+        - github.com/kclejeune/slinky

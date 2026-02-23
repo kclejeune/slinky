@@ -48,7 +48,11 @@ func TestReadPID(t *testing.T) {
 	}
 
 	wantPID := 12345
-	if err := os.WriteFile(filepath.Join(dir, "pid"), []byte(strconv.Itoa(wantPID)), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, "pid"),
+		[]byte(strconv.Itoa(wantPID)),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,7 +86,11 @@ func TestDaemonizeAlreadyRunning(t *testing.T) {
 
 	// Write current process PID — signal 0 will succeed.
 	myPID := os.Getpid()
-	if err := os.WriteFile(filepath.Join(dir, "pid"), []byte(strconv.Itoa(myPID)), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(dir, "pid"),
+		[]byte(strconv.Itoa(myPID)),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 

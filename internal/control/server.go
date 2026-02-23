@@ -154,7 +154,13 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 
 	if req.Version != 0 && req.Version != ProtocolVersion {
-		slog.Warn("unknown protocol version, processing anyway", "version", req.Version, "expected", ProtocolVersion)
+		slog.Warn(
+			"unknown protocol version, processing anyway",
+			"version",
+			req.Version,
+			"expected",
+			ProtocolVersion,
+		)
 	}
 
 	switch req.Type {
@@ -178,8 +184,19 @@ func (s *Server) handleConn(conn net.Conn) {
 func (s *Server) handleActivate(conn net.Conn, req Request) {
 	const maxEnvEntries = 256
 	if len(req.Env) > maxEnvEntries {
-		slog.Warn("activate rejected: too many env entries", "count", len(req.Env), "max", maxEnvEntries)
-		writeJSON(conn, ActivateResponse{Error: fmt.Sprintf("too many env entries (%d > %d)", len(req.Env), maxEnvEntries)})
+		slog.Warn(
+			"activate rejected: too many env entries",
+			"count",
+			len(req.Env),
+			"max",
+			maxEnvEntries,
+		)
+		writeJSON(
+			conn,
+			ActivateResponse{
+				Error: fmt.Sprintf("too many env entries (%d > %d)", len(req.Env), maxEnvEntries),
+			},
+		)
 		return
 	}
 
@@ -203,14 +220,29 @@ func (s *Server) handleActivate(conn net.Conn, req Request) {
 			continue
 		}
 		renderer := render.NewRenderer(ef.FileConfig)
-		if _, renderErr := renderer.Render(name, ef.FileConfig, ef.EnvLookupFunc(), ef.Env); renderErr != nil {
+		if _, renderErr := renderer.Render(
+			name,
+			ef.FileConfig,
+			ef.EnvLookupFunc(),
+			ef.Env,
+		); renderErr != nil {
 			msg := fmt.Sprintf("file %q: render failed: %v", name, renderErr)
 			slog.Warn("render probe failed", "file", name, "error", renderErr)
 			warnings = append(warnings, msg)
 		}
 	}
 
-	slog.Info("context activated", "dir", req.Dir, "session", req.Session, "files", len(names), "warnings", len(warnings))
+	slog.Info(
+		"context activated",
+		"dir",
+		req.Dir,
+		"session",
+		req.Session,
+		"files",
+		len(names),
+		"warnings",
+		len(warnings),
+	)
 	writeJSON(conn, ActivateResponse{OK: true, Files: names, Warnings: warnings})
 }
 

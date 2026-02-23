@@ -256,7 +256,10 @@ func logsCmd() *cobra.Command {
 			f, err := os.Open(path)
 			if err != nil {
 				if errors.Is(err, fs.ErrNotExist) {
-					return fmt.Errorf("no log file found at %s (has the daemon been started with -d?)", path)
+					return fmt.Errorf(
+						"no log file found at %s (has the daemon been started with -d?)",
+						path,
+					)
 				}
 				return fmt.Errorf("opening log file: %w", err)
 			}

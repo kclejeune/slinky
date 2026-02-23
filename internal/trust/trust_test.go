@@ -11,7 +11,11 @@ func TestStoreAllowAndTrust(t *testing.T) {
 	storePath := filepath.Join(dir, "trusted.json")
 	configPath := filepath.Join(dir, ".slinky.toml")
 
-	if err := os.WriteFile(configPath, []byte("[files.test]\ntemplate = \"test.tpl\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		configPath,
+		[]byte("[files.test]\ntemplate = \"test.tpl\"\n"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -41,7 +45,11 @@ func TestStoreAllowAndTrust(t *testing.T) {
 	}
 
 	// Modify the file — should become untrusted.
-	if err := os.WriteFile(configPath, []byte("[files.test]\ntemplate = \"changed.tpl\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		configPath,
+		[]byte("[files.test]\ntemplate = \"changed.tpl\"\n"),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 

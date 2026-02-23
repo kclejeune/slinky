@@ -29,12 +29,22 @@ func testBackend(t *testing.T) (*Backend, string) {
 	}
 
 	tplFile := filepath.Join(tplDir, "netrc.tpl")
-	if err := os.WriteFile(tplFile, []byte("machine github.com login {{ env \"TEST_USER\" }} password {{ env \"TEST_TOKEN\" }}\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		tplFile,
+		[]byte(
+			"machine github.com login {{ env \"TEST_USER\" }} password {{ env \"TEST_TOKEN\" }}\n",
+		),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
 	dockerTplFile := filepath.Join(tplDir, "docker.tpl")
-	if err := os.WriteFile(dockerTplFile, []byte(`{"auths":{"ghcr.io":{"auth":"{{ env "TEST_TOKEN" }}"}}}`), 0o644); err != nil {
+	if err := os.WriteFile(
+		dockerTplFile,
+		[]byte(`{"auths":{"ghcr.io":{"auth":"{{ env "TEST_TOKEN" }}"}}}`),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 

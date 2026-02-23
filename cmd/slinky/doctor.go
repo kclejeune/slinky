@@ -62,9 +62,15 @@ func doctorCmd() *cobra.Command {
 			if mount.FUSEAvailable() {
 				printCheck(true, "FUSE available")
 			} else if mount.TmpfsAvailable() {
-				printCheck(false, "FUSE not available (will use tmpfs fallback with backend = \"auto\")")
+				printCheck(
+					false,
+					"FUSE not available (will use tmpfs fallback with backend = \"auto\")",
+				)
 			} else {
-				printCheck(false, "FUSE and tmpfs not available (will use fifo fallback with backend = \"auto\")")
+				printCheck(
+					false,
+					"FUSE and tmpfs not available (will use fifo fallback with backend = \"auto\")",
+				)
 			}
 
 			// 3. Project configs.
@@ -149,7 +155,13 @@ func doctorCmd() *cobra.Command {
 					} else if dest == target {
 						// Symlink points to the right place — verify the target is readable.
 						if f, openErr := os.Open(link); openErr != nil {
-							printCheck(false, "symlink %s -> %s: not readable: %v", link, dest, openErr)
+							printCheck(
+								false,
+								"symlink %s -> %s: not readable: %v",
+								link,
+								dest,
+								openErr,
+							)
 							issues++
 						} else {
 							f.Close()
@@ -161,7 +173,12 @@ func doctorCmd() *cobra.Command {
 					}
 				} else {
 					conflict := string(globalCfg.Settings.Symlink.Conflict)
-					printCheck(false, "symlink %s: existing file (conflict mode: %s)", link, conflict)
+					printCheck(
+						false,
+						"symlink %s: existing file (conflict mode: %s)",
+						link,
+						conflict,
+					)
 					issues++
 				}
 			}
@@ -179,7 +196,8 @@ func doctorCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&dir, "directory", "d", "", "directory to check (default: current directory)")
+	cmd.Flags().
+		StringVarP(&dir, "directory", "d", "", "directory to check (default: current directory)")
 	return cmd
 }
 

@@ -96,7 +96,10 @@ Typically called from shell hooks (mise, direnv):
 					for _, w := range resp.Warnings {
 						fmt.Fprintf(os.Stderr, "error: %s\n", w)
 					}
-					return fmt.Errorf("activation succeeded but %d file(s) failed to render", len(resp.Warnings))
+					return fmt.Errorf(
+						"activation succeeded but %d file(s) failed to render",
+						len(resp.Warnings),
+					)
 				}
 			}
 
@@ -107,7 +110,10 @@ Typically called from shell hooks (mise, direnv):
 				if loadErr == nil {
 					diskHash, hashErr := diskCfg.Hash()
 					if hashErr == nil && diskHash != status.ConfigHash {
-						fmt.Fprintf(os.Stderr, "warning: daemon config is out of date (run `slinky stop && slinky start` or send SIGHUP to reload)\n")
+						fmt.Fprintf(
+							os.Stderr,
+							"warning: daemon config is out of date (run `slinky stop && slinky start` or send SIGHUP to reload)\n",
+						)
 					}
 				}
 			}
@@ -119,8 +125,10 @@ Typically called from shell hooks (mise, direnv):
 		},
 	}
 
-	cmd.Flags().BoolVar(&hook, "hook", false, "shell hook mode: suppress output and warn instead of failing")
-	cmd.Flags().IntVar(&session, "session", -1, "shell session PID for reference counting (default: auto-detect parent PID; 0 to disable)")
+	cmd.Flags().
+		BoolVar(&hook, "hook", false, "shell hook mode: suppress output and warn instead of failing")
+	cmd.Flags().
+		IntVar(&session, "session", -1, "shell session PID for reference counting (default: auto-detect parent PID; 0 to disable)")
 	return cmd
 }
 
@@ -183,14 +191,21 @@ Typically called from shell hooks when leaving a directory:
 			}
 
 			if !hook {
-				fmt.Fprintf(os.Stderr, "deactivated context: %s (%d files remaining)\n", dir, len(resp.Files))
+				fmt.Fprintf(
+					os.Stderr,
+					"deactivated context: %s (%d files remaining)\n",
+					dir,
+					len(resp.Files),
+				)
 			}
 			return nil
 		},
 	}
 
-	cmd.Flags().BoolVar(&hook, "hook", false, "shell hook mode: suppress output and warn instead of failing")
-	cmd.Flags().IntVar(&session, "session", -1, "shell session PID for reference counting (default: auto-detect parent PID; 0 to disable)")
+	cmd.Flags().
+		BoolVar(&hook, "hook", false, "shell hook mode: suppress output and warn instead of failing")
+	cmd.Flags().
+		IntVar(&session, "session", -1, "shell session PID for reference counting (default: auto-detect parent PID; 0 to disable)")
 	return cmd
 }
 
@@ -227,7 +242,11 @@ func filterActivationEnv(dir string) map[string]string {
 	for name, fc := range globalCfg.Files {
 		vars := render.ExtractEnvVars(name, fc)
 		if vars == nil {
-			slog.Warn("env filtering: template extraction failed, forwarding full environment", "file", name)
+			slog.Warn(
+				"env filtering: template extraction failed, forwarding full environment",
+				"file",
+				name,
+			)
 			return fullEnv
 		}
 		for k := range vars {
@@ -246,7 +265,11 @@ func filterActivationEnv(dir string) map[string]string {
 		for name, fc := range files {
 			vars := render.ExtractEnvVars(name, fc)
 			if vars == nil {
-				slog.Warn("env filtering: project template extraction failed, forwarding full environment", "file", name)
+				slog.Warn(
+					"env filtering: project template extraction failed, forwarding full environment",
+					"file",
+					name,
+				)
 				return fullEnv
 			}
 			for k := range vars {

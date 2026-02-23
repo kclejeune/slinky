@@ -120,7 +120,9 @@ func (w *Watcher) Run() {
 			if !ok {
 				return
 			}
-			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) ||
+				event.Has(fsnotify.Remove) ||
+				event.Has(fsnotify.Rename) {
 				w.dispatch(event.Name, event.Op)
 			}
 		case err, ok := <-w.watcher.Errors:

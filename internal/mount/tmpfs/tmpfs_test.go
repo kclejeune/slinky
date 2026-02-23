@@ -22,12 +22,22 @@ func testBackend(t *testing.T) (*Backend, string) {
 		t.Fatal(err)
 	}
 	tplFile := filepath.Join(tplDir, "netrc.tpl")
-	if err := os.WriteFile(tplFile, []byte("machine github.com\n  login {{ env \"TEST_USER\" }}\n  password {{ env \"TEST_TOKEN\" }}\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		tplFile,
+		[]byte(
+			"machine github.com\n  login {{ env \"TEST_USER\" }}\n  password {{ env \"TEST_TOKEN\" }}\n",
+		),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
 	dockerTplFile := filepath.Join(tplDir, "docker.tpl")
-	if err := os.WriteFile(dockerTplFile, []byte(`{"auths":{"ghcr.io":{"auth":"{{ env "TEST_TOKEN" }}"}}}`), 0o644); err != nil {
+	if err := os.WriteFile(
+		dockerTplFile,
+		[]byte(`{"auths":{"ghcr.io":{"auth":"{{ env "TEST_TOKEN" }}"}}}`),
+		0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -161,7 +171,11 @@ func TestScrubAll(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(b.mountPoint, "netrc")); !os.IsNotExist(err) {
 		t.Error("netrc should not exist after scrub")
 	}
-	if _, err := os.Stat(filepath.Join(b.mountPoint, "docker", "config.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(
+		filepath.Join(b.mountPoint, "docker", "config.json"),
+	); !os.IsNotExist(
+		err,
+	) {
 		t.Error("docker/config.json should not exist after scrub")
 	}
 }
