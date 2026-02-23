@@ -215,8 +215,8 @@ func filterActivationEnv(dir string) map[string]string {
 	}
 
 	// Extract from global file definitions.
-	for _, fc := range globalCfg.Files {
-		vars := render.ExtractEnvVars(fc)
+	for name, fc := range globalCfg.Files {
+		vars := render.ExtractEnvVars(name, fc)
 		if vars == nil {
 			// Extraction failed or command mode — keep all env as fallback.
 			return fullEnv
@@ -234,8 +234,8 @@ func filterActivationEnv(dir string) map[string]string {
 		if err != nil {
 			continue
 		}
-		for _, fc := range files {
-			vars := render.ExtractEnvVars(fc)
+		for name, fc := range files {
+			vars := render.ExtractEnvVars(name, fc)
 			if vars == nil {
 				return fullEnv
 			}

@@ -19,9 +19,9 @@ func writeTpl(t *testing.T, content string) string {
 
 func TestExtractEnvVarsBasicEnv(t *testing.T) {
 	path := writeTpl(t, `{{ env "GITHUB_TOKEN" }}`)
-	cfg := &config.FileConfig{Name: "test", Render: "native", Template: path}
+	cfg := &config.FileConfig{Render: "native", Template: path}
 
-	vars := ExtractEnvVars(cfg)
+	vars := ExtractEnvVars("test", cfg)
 	if vars == nil {
 		t.Fatal("expected non-nil vars")
 	}
@@ -35,9 +35,9 @@ func TestExtractEnvVarsBasicEnv(t *testing.T) {
 
 func TestExtractEnvVarsEnvDefault(t *testing.T) {
 	path := writeTpl(t, `{{ envDefault "API_HOST" "localhost" }}`)
-	cfg := &config.FileConfig{Name: "test", Render: "native", Template: path}
+	cfg := &config.FileConfig{Render: "native", Template: path}
 
-	vars := ExtractEnvVars(cfg)
+	vars := ExtractEnvVars("test", cfg)
 	if vars == nil {
 		t.Fatal("expected non-nil vars")
 	}
@@ -54,9 +54,9 @@ func TestExtractEnvVarsMultiple(t *testing.T) {
 login {{ env "USER" }}
 password {{ env "TOKEN" }}
 host {{ envDefault "HOST" "default" }}`)
-	cfg := &config.FileConfig{Name: "test", Render: "native", Template: path}
+	cfg := &config.FileConfig{Render: "native", Template: path}
 
-	vars := ExtractEnvVars(cfg)
+	vars := ExtractEnvVars("test", cfg)
 	if vars == nil {
 		t.Fatal("expected non-nil vars")
 	}
@@ -72,9 +72,9 @@ host {{ envDefault "HOST" "default" }}`)
 
 func TestExtractEnvVarsPiped(t *testing.T) {
 	path := writeTpl(t, `{{ env "SECRET" | trimAll "\n" }}`)
-	cfg := &config.FileConfig{Name: "test", Render: "native", Template: path}
+	cfg := &config.FileConfig{Render: "native", Template: path}
 
-	vars := ExtractEnvVars(cfg)
+	vars := ExtractEnvVars("test", cfg)
 	if vars == nil {
 		t.Fatal("expected non-nil vars")
 	}
@@ -85,9 +85,9 @@ func TestExtractEnvVarsPiped(t *testing.T) {
 
 func TestExtractEnvVarsIfElse(t *testing.T) {
 	path := writeTpl(t, `{{ if env "ENABLE" }}on{{ else }}{{ envDefault "FALLBACK" "off" }}{{ end }}`)
-	cfg := &config.FileConfig{Name: "test", Render: "native", Template: path}
+	cfg := &config.FileConfig{Render: "native", Template: path}
 
-	vars := ExtractEnvVars(cfg)
+	vars := ExtractEnvVars("test", cfg)
 	if vars == nil {
 		t.Fatal("expected non-nil vars")
 	}
@@ -103,9 +103,9 @@ func TestExtractEnvVarsIfElse(t *testing.T) {
 }
 
 func TestExtractEnvVarsCommandMode(t *testing.T) {
-	cfg := &config.FileConfig{Name: "test", Render: "command", Command: "echo"}
+	cfg := &config.FileConfig{Render: "command", Command: "echo"}
 
-	vars := ExtractEnvVars(cfg)
+	vars := ExtractEnvVars("test", cfg)
 	if vars != nil {
 		t.Error("expected nil for command mode")
 	}
@@ -113,9 +113,9 @@ func TestExtractEnvVarsCommandMode(t *testing.T) {
 
 func TestExtractEnvVarsNoEnvCalls(t *testing.T) {
 	path := writeTpl(t, `static content only`)
-	cfg := &config.FileConfig{Name: "test", Render: "native", Template: path}
+	cfg := &config.FileConfig{Render: "native", Template: path}
 
-	vars := ExtractEnvVars(cfg)
+	vars := ExtractEnvVars("test", cfg)
 	if vars == nil {
 		t.Fatal("expected non-nil (empty) vars, got nil")
 	}
@@ -125,9 +125,9 @@ func TestExtractEnvVarsNoEnvCalls(t *testing.T) {
 }
 
 func TestExtractEnvVarsMissingTemplate(t *testing.T) {
-	cfg := &config.FileConfig{Name: "test", Render: "native", Template: "/nonexistent/template.tpl"}
+	cfg := &config.FileConfig{Render: "native", Template: "/nonexistent/template.tpl"}
 
-	vars := ExtractEnvVars(cfg)
+	vars := ExtractEnvVars("test", cfg)
 	if vars != nil {
 		t.Error("expected nil for missing template (safe fallback)")
 	}
@@ -135,7 +135,7 @@ func TestExtractEnvVarsMissingTemplate(t *testing.T) {
 
 func TestFilterEnvBasic(t *testing.T) {
 	path := writeTpl(t, `{{ env "KEEP_ME" }}`)
-	cfg := &config.FileConfig{Name: "test", Render: "native", Template: path}
+	cfg := &config.FileConfig{Render: "native", Template: path}
 
 	env := map[string]string{
 		"KEEP_ME": "yes",
@@ -147,7 +147,7 @@ func TestFilterEnvBasic(t *testing.T) {
 		"SHELL":   "/bin/bash",
 	}
 
-	filtered := FilterEnv(cfg, env)
+	filtered := FilterEnv("test", cfg, env)
 	if filtered == nil {
 		t.Fatal("expected non-nil filtered env")
 	}
@@ -163,19 +163,19 @@ func TestFilterEnvBasic(t *testing.T) {
 }
 
 func TestFilterEnvNilEnv(t *testing.T) {
-	cfg := &config.FileConfig{Name: "test", Render: "native", Template: "irrelevant"}
+	cfg := &config.FileConfig{Render: "native", Template: "irrelevant"}
 
-	filtered := FilterEnv(cfg, nil)
+	filtered := FilterEnv("test", cfg, nil)
 	if filtered != nil {
 		t.Error("expected nil for nil env")
 	}
 }
 
 func TestFilterEnvCommandMode(t *testing.T) {
-	cfg := &config.FileConfig{Name: "test", Render: "command", Command: "echo"}
+	cfg := &config.FileConfig{Render: "command", Command: "echo"}
 
 	env := map[string]string{"FOO": "bar", "PATH": "/usr/bin", "HOME": "/home/user"}
-	filtered := FilterEnv(cfg, env)
+	filtered := FilterEnv("test", cfg, env)
 	if filtered == nil {
 		t.Fatal("expected non-nil env for command mode")
 	}
@@ -191,10 +191,10 @@ func TestFilterEnvCommandMode(t *testing.T) {
 }
 
 func TestFilterEnvMissingTemplateFallback(t *testing.T) {
-	cfg := &config.FileConfig{Name: "test", Render: "native", Template: "/nonexistent/template.tpl"}
+	cfg := &config.FileConfig{Render: "native", Template: "/nonexistent/template.tpl"}
 
 	env := map[string]string{"FOO": "bar", "BAZ": "qux"}
-	filtered := FilterEnv(cfg, env)
+	filtered := FilterEnv("test", cfg, env)
 
 	if len(filtered) != 2 {
 		t.Errorf("expected original env (2 vars), got %d", len(filtered))

@@ -13,7 +13,7 @@ import (
 // envDefault "KEY" "fallback" calls). Returns the set of referenced var names,
 // or nil on any error (parse failure, missing template, command mode) as a
 // "keep all env" fallback.
-func ExtractEnvVars(cfg *config.FileConfig) map[string]bool {
+func ExtractEnvVars(name string, cfg *config.FileConfig) map[string]bool {
 	if cfg.Render == "command" || cfg.Template == "" {
 		return nil
 	}
@@ -29,7 +29,7 @@ func ExtractEnvVars(cfg *config.FileConfig) map[string]bool {
 		return nil
 	}
 
-	tmpl, err := template.New(cfg.Name).Funcs(funcMap).Parse(string(tplData))
+	tmpl, err := template.New(name).Funcs(funcMap).Parse(string(tplData))
 	if err != nil {
 		return nil
 	}
@@ -53,7 +53,7 @@ var cmdEnvAllowlist = map[string]bool{
 // For command-mode files, returns only the allowlist vars (PATH, HOME, etc.)
 // since referenced variables cannot be statically extracted. Returns the
 // original env unchanged if extraction fails (safe fallback).
-func FilterEnv(cfg *config.FileConfig, env map[string]string) map[string]string {
+func FilterEnv(name string, cfg *config.FileConfig, env map[string]string) map[string]string {
 	if env == nil {
 		return nil
 	}
@@ -67,7 +67,7 @@ func FilterEnv(cfg *config.FileConfig, env map[string]string) map[string]string 
 		return filtered
 	}
 
-	vars := ExtractEnvVars(cfg)
+	vars := ExtractEnvVars(name, cfg)
 	if vars == nil {
 		return env // extraction failed, keep original
 	}
@@ -88,9 +88,6 @@ func walkNode(node parse.Node, vars map[string]bool) {
 
 	switch n := node.(type) {
 	case *parse.ListNode:
-		if n == nil {
-			return
-		}
 		for _, child := range n.Nodes {
 			walkNode(child, vars)
 		}
@@ -99,9 +96,6 @@ func walkNode(node parse.Node, vars map[string]bool) {
 		walkNode(n.Pipe, vars)
 
 	case *parse.PipeNode:
-		if n == nil {
-			return
-		}
 		for _, cmd := range n.Cmds {
 			walkCommand(cmd, vars)
 		}

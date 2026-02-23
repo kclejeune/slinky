@@ -399,8 +399,8 @@ func effectiveNames(eff map[string]*EffectiveFile) []string {
 }
 
 func filterEffectiveEnv(effective map[string]*EffectiveFile) {
-	for _, ef := range effective {
-		ef.Env = render.FilterEnv(ef.FileConfig, ef.Env)
+	for name, ef := range effective {
+		ef.Env = render.FilterEnv(name, ef.FileConfig, ef.Env)
 	}
 }
 
