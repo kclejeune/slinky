@@ -8,7 +8,7 @@ This document describes the internal architecture of `slinky`. For usage and con
 
 ![System architecture diagram](d2/overview.svg)
 
-*Source: [d2/overview.d2](d2/overview.d2)*
+_Source: [d2/overview.d2](d2/overview.d2)_
 
 `slinky` is a client–daemon system connected over a Unix socket. The daemon owns the mount point, context state, cache, and symlinks. CLI invocations (including shell hooks) communicate with it via a simple JSON-over-socket protocol.
 
@@ -43,7 +43,7 @@ internal/
 
 ![File read path diagram](d2/read.svg)
 
-*Source: [d2/read.d2](d2/read.d2)*
+_Source: [d2/read.d2](d2/read.d2)_
 
 ```
 App reads ~/.netrc
@@ -65,7 +65,7 @@ App reads ~/.netrc
 
 ![Activation path diagram](d2/activation.svg)
 
-*Source: [d2/activation.d2](d2/activation.d2)*
+_Source: [d2/activation.d2](d2/activation.d2)_
 
 ```
 Shell hook: slinky activate --hook
@@ -120,12 +120,14 @@ The context manager is the central coordinator. It maintains:
 - **`pidToDirs map[int]map[string]bool`** — reverse index from session PID to activated directories (for efficient reaper sweep)
 
 **Activation** contains:
+
 - Discovered project layers (shallowest-first)
 - Captured environment from the activating shell
 - Project-layer overrides (files defined by project configs)
 - Session set (PIDs referencing this activation)
 
 **Effective computation** (`recompute()`):
+
 1. Build merged env from all active activations (deterministic alphabetical order)
 2. Create global file entries with merged env (so global files can use shell vars)
 3. Apply project-layer overrides (deepest wins per file)
@@ -174,6 +176,7 @@ The `EnvLookup` function chain: activation's captured env map → `os.LookupEnv(
 ### Mount backends (`internal/mount/`)
 
 **FUSE** (`fuse/`):
+
 - Dynamic `Lookup()`/`Readdir()` consult the context manager on every call
 - Zero entry/attr timeout — kernel never caches dentries
 - `FOPEN_DIRECT_IO` — bypasses kernel page cache
@@ -182,6 +185,7 @@ The `EnvLookup` function chain: activation's captured env map → `os.LookupEnv(
 - UID/GID set to current process at init time
 
 **tmpfs** (`tmpfs/`):
+
 - Platform-specific mount: Linux `tmpfs`, macOS `hdiutil` RAM disk (HFS+, 4 MB)
 - Files written atomically (temp file + rename)
 - Background refresh loop at `min(TTL) / 2` interval
@@ -190,6 +194,7 @@ The `EnvLookup` function chain: activation's captured env map → `os.LookupEnv(
 - Nested directories auto-created for paths like `docker/config.json`
 
 **FIFO** (`fifo/`):
+
 - Creates named pipes (`mkfifo`) at the mount point — one per effective file
 - A per-FIFO goroutine polls with `O_WRONLY|O_NONBLOCK`: returns `ENXIO` when no reader, sleeps 50 ms, retries
 - When a reader opens the pipe, the goroutine resolves the secret via `resolver.Resolve()`, writes to the pipe, zeros the plaintext buffer, and closes the fd
@@ -205,11 +210,13 @@ The `EnvLookup` function chain: activation's captured env map → `os.LookupEnv(
 JSON-over-Unix-socket protocol. One JSON object per line. Request payload is capped at 1 MB.
 
 **Requests**: `{type, dir?, env?, session?}`
+
 - `activate` — discover layers, capture env, add/update activation
 - `deactivate` — remove session from activation
 - `status` — return running state, active dirs, files, layers, sessions
 
 **Responses**:
+
 - `ActivateResponse` / `DeactivateResponse`: `{ok, files, error}`
 - `StatusResponse`: `{running, active_dirs, files, layers, sessions}`
 
@@ -220,6 +227,7 @@ Peer credential verification via `SO_PEERCRED` (Linux) or `LOCAL_PEERCRED` (macO
 ### Template rendering (`internal/render/`)
 
 **Native mode**: Go `text/template` + [sprout](https://github.com/go-sprout/sprout) functions + custom builtins:
+
 - `env "KEY"` — required env var (error if unset)
 - `envDefault "KEY" "fallback"` — env var with default
 - `file "path"` — read file contents (path expansion)
@@ -244,6 +252,7 @@ Creates symlinks from conventional paths (`~/.netrc`) to mounted files (`~/.secr
 **Reconciliation** (on context change): removes symlinks for files no longer effective, creates symlinks for new files. Refuses to replace directories. Parent directories are created as needed.
 
 **Conflict modes** (`settings.symlink.conflict`):
+
 - `error` (default): return an error if a non-managed file already exists at the symlink path
 - `backup`: rename the existing file with the configured extension (default `~`) before creating the symlink
 
@@ -251,16 +260,16 @@ Creates symlinks from conventional paths (`~/.netrc`) to mounted files (`~/.secr
 
 ## Concurrency model
 
-| Synchronization primitive | Protects |
-|---|---|
-| `activateMu` (Mutex) | Serializes `Activate`/`Deactivate`/`RemoveSession` — ensures atomic state transitions |
-| `mu` (RWMutex) | Protects `effective` and `activations` maps for concurrent reads from FUSE/resolver |
-| Control socket | Each connection handled in its own goroutine |
-| FUSE goroutine pool | go-fuse handles concurrency internally; each Lookup/Open/Read runs in a goroutine pool |
-| tmpfs refresh goroutine | Single goroutine, serialized by event loop (ticker + reconfigCh) |
-| FIFO serve loops | One goroutine per effective file; polls for readers with O_NONBLOCK; cancelled via child context on reconfigure or shutdown |
-| Reaper goroutine | Single goroutine, 30-second tick |
-| Async cache refresh | One goroutine per file, deduplicated by name |
+| Synchronization primitive | Protects                                                                                                                    |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `activateMu` (Mutex)      | Serializes `Activate`/`Deactivate`/`RemoveSession` — ensures atomic state transitions                                       |
+| `mu` (RWMutex)            | Protects `effective` and `activations` maps for concurrent reads from FUSE/resolver                                         |
+| Control socket            | Each connection handled in its own goroutine                                                                                |
+| FUSE goroutine pool       | go-fuse handles concurrency internally; each Lookup/Open/Read runs in a goroutine pool                                      |
+| tmpfs refresh goroutine   | Single goroutine, serialized by event loop (ticker + reconfigCh)                                                            |
+| FIFO serve loops          | One goroutine per effective file; polls for readers with O_NONBLOCK; cancelled via child context on reconfigure or shutdown |
+| Reaper goroutine          | Single goroutine, 30-second tick                                                                                            |
+| Async cache refresh       | One goroutine per file, deduplicated by name                                                                                |
 
 Lock ordering: `activateMu` must be acquired before `mu`. The `onChange` callback is invoked outside both locks with a snapshot copy of the effective file map.
 

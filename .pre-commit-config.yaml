@@ -24,6 +24,18 @@ repos:
     hooks:
       - id: d2
       - id: d2-fmt
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
+    hooks:
+      - id: prettier
+        types_or:
+          - json
+          - yaml
+          - markdown
+          - html
+          - css
+          - scss
+          - javascript
   # - repo: https://github.com/thlorenz/doctoc
   #   rev: v2.3.0
   #   hooks:
