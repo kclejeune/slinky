@@ -36,6 +36,7 @@ type SecretCache struct {
 	cipher  cipher.CacheCipher
 	stopCh  chan struct{}
 	stopFn  sync.Once
+	wg      sync.WaitGroup
 }
 
 func New(c cipher.CacheCipher) *SecretCache {
@@ -44,6 +45,7 @@ func New(c cipher.CacheCipher) *SecretCache {
 		cipher:  c,
 		stopCh:  make(chan struct{}),
 	}
+	sc.wg.Add(1)
 	go sc.reaper()
 	return sc
 }
@@ -83,6 +85,18 @@ func (sc *SecretCache) Clear() {
 	sc.entries = make(map[string]*Entry)
 }
 
+// SwapCipher atomically replaces the cipher and clears all cached entries
+// (existing ciphertext is undecryptable with the new key).
+func (sc *SecretCache) SwapCipher(c cipher.CacheCipher) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	for _, e := range sc.entries {
+		clear(e.Ciphertext)
+	}
+	sc.entries = make(map[string]*Entry)
+	sc.cipher = c
+}
+
 func (sc *SecretCache) ClearKey(key string) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
@@ -92,21 +106,49 @@ func (sc *SecretCache) ClearKey(key string) {
 	delete(sc.entries, key)
 }
 
-func (sc *SecretCache) Stats() map[string]time.Duration {
+// EntryInfo holds rich metadata about a cache entry.
+type EntryInfo struct {
+	Age   time.Duration
+	TTL   time.Duration
+	State string // "fresh", "stale", or "expired"
+}
+
+func (sc *SecretCache) Stats() map[string]EntryInfo {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
-	stats := make(map[string]time.Duration, len(sc.entries))
+	stats := make(map[string]EntryInfo, len(sc.entries))
 	for k, e := range sc.entries {
-		stats[k] = time.Since(e.CreatedAt)
+		info := EntryInfo{
+			Age: time.Since(e.CreatedAt),
+			TTL: e.TTL,
+		}
+		switch {
+		case e.Fresh():
+			info.State = "fresh"
+		case e.Stale():
+			info.State = "stale"
+		default:
+			info.State = "expired"
+		}
+		stats[k] = info
 	}
 	return stats
 }
 
+// CipherName returns the name of the current cache cipher.
+func (sc *SecretCache) CipherName() string {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.cipher.Name()
+}
+
 func (sc *SecretCache) Stop() {
 	sc.stopFn.Do(func() { close(sc.stopCh) })
+	sc.wg.Wait()
 }
 
 func (sc *SecretCache) reaper() {
+	defer sc.wg.Done()
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
