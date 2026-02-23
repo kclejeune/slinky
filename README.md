@@ -37,3 +37,23 @@ Many developer tools expect secrets in well-known dotfiles: `~/.netrc` for git/c
 - **It is not a secrets vault or resolver.** It does not talk to 1Password, age, sops, or any secret provider directly. It reads environment variables. Use fnox, mise, op run, direnv, etc. to populate those variables before starting the daemon.
 - **It is not a process isolation tool.** Any process running as your user can read the mounted files. It protects against secrets at rest on disk, not against malicious processes with your UID.
 - **It does not manage environment variables.** Use `fnox`, `op run`, `direnv`, or `mise` for env var injection. `slinky` consumes those variables to produce *files*.
+
+## Security model
+
+**Project configs are executable code.** A `.slinky.toml` file can execute arbitrary commands via the `exec` template function and read arbitrary files via the `file` template function — both run as the daemon user. This is analogous to a `Makefile`, `.envrc`, or shell hook.
+
+**Trust system.** To mitigate the risk of a malicious `.slinky.toml` being activated automatically (e.g. by cloning a repository with a shell hook enabled), slinky requires explicit approval before activating any project config for the first time:
+
+```bash
+# Trust the current project's .slinky.toml
+slinky allow
+
+# Revoke trust
+slinky deny
+```
+
+The SHA-256 hash of each config file is stored in `~/.local/state/slinky/trusted.json`. If a config file changes (e.g. after a `git pull`), re-approval is required. This is the same model used by [direnv](https://direnv.net/).
+
+**Global config is always trusted.** The global config at `~/.config/slinky/config.toml` is in a user-controlled location and is always accepted without approval.
+
+**Threat model.** Slinky protects against secrets persisting on disk. It does not protect against a malicious process running as your user — any such process can read mounted files, attach a debugger to the daemon, or read `/proc/<pid>/mem`. The trust system protects against untrusted project configs executing commands as the daemon user.

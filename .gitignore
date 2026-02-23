@@ -5,3 +5,5 @@
 *.out
 .DS_Store
 .slinky/
+.slinky.toml
+slinky.toml
