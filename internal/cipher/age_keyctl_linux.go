@@ -53,7 +53,7 @@ func keyctlDelete() {
 	if err != nil {
 		return
 	}
-	if err := unix.KeyctlInt(unix.KEYCTL_INVALIDATE, keyID, 0, 0, 0); err != nil {
+	if _, err := unix.KeyctlInt(unix.KEYCTL_INVALIDATE, keyID, 0, 0, 0); err != nil {
 		slog.Debug("keyctl delete failed", "error", err)
 	}
 }
