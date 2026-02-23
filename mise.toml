@@ -15,6 +15,7 @@ sources = [
   "**/*.go",
   "go.mod",
   "go.sum",
+  ".golangci.yml",
 ]
 run = [
   "golangci-lint run --fix",
@@ -38,19 +39,16 @@ sources = [
 ]
 depends = ["lint", "test"]
 
-[tasks.clean]
-description = "Remove build artifacts"
-run = ["rm -rf build/"]
-
 [tasks.build]
 description = "Build the slinky binary"
 sources = [
   "**/*.go",
   "go.mod",
   "go.sum",
+  ".goreleaser.yaml",
 ]
-outputs = ["build/*"]
-run = "go build -v -o build/slinky ./cmd/slinky"
+outputs = ["dist/*"]
+run = "goreleaser build --clean --auto-snapshot"
 
 [tasks.install]
 description = "Install slinky to GOPATH/bin"

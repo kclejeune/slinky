@@ -23,6 +23,11 @@ builds:
       # - windows
       - darwin
     main: ./cmd/slinky
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
 
 archives:
   - formats: [tar.gz]

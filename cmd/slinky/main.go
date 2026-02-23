@@ -20,6 +20,10 @@ var (
 	cfgFile string
 	verbose bool
 	quiet   bool
+
+	// Set via -ldflags at build time by goreleaser.
+	version = "dev"
+	commit  = "none"
 )
 
 func main() {
@@ -63,7 +67,12 @@ func main() {
 	root.AddCommand(cacheCmd())
 	root.AddCommand(cfgCmd())
 
-	if err := fang.Execute(context.Background(), root); err != nil {
+	if err := fang.Execute(
+		context.Background(),
+		root,
+		fang.WithVersion(version),
+		fang.WithCommit(commit),
+	); err != nil {
 		os.Exit(1)
 	}
 }
