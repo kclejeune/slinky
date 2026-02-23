@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 
 	"github.com/kclejeune/slinky/internal/cache"
 	"github.com/kclejeune/slinky/internal/config"
@@ -12,7 +13,7 @@ import (
 )
 
 type SecretResolver struct {
-	cfg    *config.Config
+	cfg    atomic.Pointer[config.Config]
 	cache  *cache.SecretCache
 	ctxMgr *slinkycontext.Manager // may be nil
 
@@ -21,12 +22,17 @@ type SecretResolver struct {
 }
 
 func New(cfg *config.Config, c *cache.SecretCache, ctxMgr *slinkycontext.Manager) *SecretResolver {
-	return &SecretResolver{
-		cfg:        cfg,
+	r := &SecretResolver{
 		cache:      c,
 		ctxMgr:     ctxMgr,
 		refreshing: make(map[string]bool),
 	}
+	r.cfg.Store(cfg)
+	return r
+}
+
+func (r *SecretResolver) UpdateConfig(cfg *config.Config) {
+	r.cfg.Store(cfg)
 }
 
 // Resolve returns the rendered content for the named file.
@@ -41,7 +47,7 @@ func (r *SecretResolver) Resolve(name string) ([]byte, error) {
 		return nil, err
 	}
 
-	key, err := ComputeCacheKey(fc, envMap)
+	key, err := ComputeCacheKey(name, fc, envMap)
 	if err != nil {
 		return nil, fmt.Errorf("computing cache key for %q: %w", name, err)
 	}
@@ -61,7 +67,7 @@ func (r *SecretResolver) Resolve(name string) ([]byte, error) {
 	}
 
 	slog.Debug("cache miss, rendering", "file", name)
-	return r.renderAndCache(fc, keyStr, envLookup, envMap)
+	return r.renderAndCache(name, fc, keyStr, envLookup, envMap)
 }
 
 // RenderOnly renders without caching (used by the CLI render command).
@@ -72,7 +78,7 @@ func (r *SecretResolver) RenderOnly(name string) ([]byte, error) {
 	}
 
 	renderer := render.NewRenderer(fc)
-	return renderer.Render(fc.Name, fc, envLookup, envMap)
+	return renderer.Render(name, fc, envLookup, envMap)
 }
 
 // lookupFile returns the file config, env map, and env lookup for the named file.
@@ -84,24 +90,25 @@ func (r *SecretResolver) lookupFile(name string) (*config.FileConfig, map[string
 		}
 	}
 
-	fc, ok := r.cfg.Files[name]
+	cfg := r.cfg.Load()
+	fc, ok := cfg.Files[name]
 	if !ok {
 		return nil, nil, nil, fmt.Errorf("unknown file: %q", name)
 	}
 	return fc, nil, nil, nil
 }
 
-func (r *SecretResolver) renderAndCache(fc *config.FileConfig, keyStr string, envLookup render.EnvLookup, envMap map[string]string) ([]byte, error) {
+func (r *SecretResolver) renderAndCache(name string, fc *config.FileConfig, keyStr string, envLookup render.EnvLookup, envMap map[string]string) ([]byte, error) {
 	renderer := render.NewRenderer(fc)
-	content, err := renderer.Render(fc.Name, fc, envLookup, envMap)
+	content, err := renderer.Render(name, fc, envLookup, envMap)
 	if err != nil {
-		return nil, fmt.Errorf("rendering %q: %w", fc.Name, err)
+		return nil, fmt.Errorf("rendering %q: %w", name, err)
 	}
 
-	ttl := fc.FileTTL(r.cfg.Settings.Cache.DefaultTTL)
+	cfg := r.cfg.Load()
+	ttl := fc.FileTTL(cfg.Settings.Cache.DefaultTTL)
 	if err := r.cache.Put(keyStr, content, ttl); err != nil {
-		// Caching failure is non-fatal; return content anyway.
-		slog.Error("failed to cache rendered content", "file", fc.Name, "error", err)
+		slog.Error("failed to cache rendered content", "file", name, "error", err)
 	}
 
 	return content, nil
@@ -123,7 +130,7 @@ func (r *SecretResolver) asyncRefresh(name string, fc *config.FileConfig, keyStr
 			r.mu.Unlock()
 		}()
 
-		if _, err := r.renderAndCache(fc, keyStr, envLookup, envMap); err != nil {
+		if _, err := r.renderAndCache(name, fc, keyStr, envLookup, envMap); err != nil {
 			slog.Error("async refresh failed", "file", name, "error", err)
 		} else {
 			slog.Debug("async refresh completed", "file", name)

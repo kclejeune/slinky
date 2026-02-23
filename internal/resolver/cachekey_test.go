@@ -15,8 +15,7 @@ func TestComputeCacheKeyNativeMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key, err := ComputeCacheKey(&config.FileConfig{
-		Name:     "test",
+	key, err := ComputeCacheKey("test", &config.FileConfig{
 		Render:   "native",
 		Template: tplFile,
 	}, nil)
@@ -45,8 +44,8 @@ func TestComputeCacheKeySameContentSameKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key1, _ := ComputeCacheKey(&config.FileConfig{Name: "test", Template: tpl1}, nil)
-	key2, _ := ComputeCacheKey(&config.FileConfig{Name: "test", Template: tpl2}, nil)
+	key1, _ := ComputeCacheKey("test", &config.FileConfig{Template: tpl1}, nil)
+	key2, _ := ComputeCacheKey("test", &config.FileConfig{Template: tpl2}, nil)
 
 	if key1.Hash != key2.Hash {
 		t.Error("same template content should produce the same hash")
@@ -65,8 +64,8 @@ func TestComputeCacheKeyDifferentContentDifferentKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key1, _ := ComputeCacheKey(&config.FileConfig{Name: "test", Template: tpl1}, nil)
-	key2, _ := ComputeCacheKey(&config.FileConfig{Name: "test", Template: tpl2}, nil)
+	key1, _ := ComputeCacheKey("test", &config.FileConfig{Template: tpl1}, nil)
+	key2, _ := ComputeCacheKey("test", &config.FileConfig{Template: tpl2}, nil)
 
 	if key1.Hash == key2.Hash {
 		t.Error("different template content should produce different hashes")
@@ -74,8 +73,7 @@ func TestComputeCacheKeyDifferentContentDifferentKey(t *testing.T) {
 }
 
 func TestComputeCacheKeyCommandMode(t *testing.T) {
-	key, err := ComputeCacheKey(&config.FileConfig{
-		Name:    "test",
+	key, err := ComputeCacheKey("test", &config.FileConfig{
 		Render:  "command",
 		Command: "op",
 		Args:    []string{"inject", "-i", "template.tpl"},
@@ -96,10 +94,10 @@ func TestComputeCacheKeyWithEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fc := &config.FileConfig{Name: "test", Template: tplFile}
+	fc := &config.FileConfig{Template: tplFile}
 
-	keyNoEnv, _ := ComputeCacheKey(fc, nil)
-	keyWithEnv, _ := ComputeCacheKey(fc, map[string]string{"TOKEN": "abc"})
+	keyNoEnv, _ := ComputeCacheKey("test", fc, nil)
+	keyWithEnv, _ := ComputeCacheKey("test", fc, map[string]string{"TOKEN": "abc"})
 
 	if keyNoEnv.Hash == keyWithEnv.Hash {
 		t.Error("env should change the cache key")
@@ -113,10 +111,10 @@ func TestComputeCacheKeyEnvOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fc := &config.FileConfig{Name: "test", Template: tplFile}
+	fc := &config.FileConfig{Template: tplFile}
 
-	key1, _ := ComputeCacheKey(fc, map[string]string{"A": "1", "B": "2"})
-	key2, _ := ComputeCacheKey(fc, map[string]string{"B": "2", "A": "1"})
+	key1, _ := ComputeCacheKey("test", fc, map[string]string{"A": "1", "B": "2"})
+	key2, _ := ComputeCacheKey("test", fc, map[string]string{"B": "2", "A": "1"})
 
 	if key1.Hash != key2.Hash {
 		t.Error("env key order should not affect cache key (sorted)")

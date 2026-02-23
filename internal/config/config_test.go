@@ -295,9 +295,6 @@ mode = 384
 	if !ok {
 		t.Fatal("expected 'netrc' file config")
 	}
-	if fc.Name != "netrc" {
-		t.Errorf("Name = %q, want %q", fc.Name, "netrc")
-	}
 	if fc.Render != "native" {
 		t.Errorf("Render = %q, want %q", fc.Render, "native")
 	}

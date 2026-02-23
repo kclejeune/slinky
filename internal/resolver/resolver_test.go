@@ -30,13 +30,12 @@ func setupResolver(t *testing.T) (*SecretResolver, string) {
 				MountPoint: filepath.Join(tmpDir, "mount"),
 			},
 			Cache: config.CacheConfig{
-				Cipher:     config.CipherAgeEphemeral,
+				Cipher:     config.CipherEphemeral,
 				DefaultTTL: config.Duration(5 * time.Minute),
 			},
 		},
 		Files: map[string]*config.FileConfig{
 			"netrc": {
-				Name:     "netrc",
 				Render:   "native",
 				Template: tplFile,
 				Mode:     0o600,
@@ -139,13 +138,12 @@ func TestResolveStaleTriggersRefresh(t *testing.T) {
 				MountPoint: filepath.Join(tmpDir, "mount"),
 			},
 			Cache: config.CacheConfig{
-				Cipher:     config.CipherAgeEphemeral,
+				Cipher:     config.CipherEphemeral,
 				DefaultTTL: config.Duration(50 * time.Millisecond),
 			},
 		},
 		Files: map[string]*config.FileConfig{
 			"netrc": {
-				Name:     "netrc",
 				Render:   "native",
 				Template: tplFile,
 				Mode:     0o600,

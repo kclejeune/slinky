@@ -23,7 +23,7 @@ func (k CacheKey) String() string {
 // contents (or command+args for command mode) combined with the logical name.
 // If env is non-nil, the sorted key=value pairs are included after a domain
 // separator so that different activation environments produce different keys.
-func ComputeCacheKey(cfg *config.FileConfig, env map[string]string) (CacheKey, error) {
+func ComputeCacheKey(name string, cfg *config.FileConfig, env map[string]string) (CacheKey, error) {
 	h := sha256.New()
 
 	if cfg.Template != "" {
@@ -55,6 +55,6 @@ func ComputeCacheKey(cfg *config.FileConfig, env map[string]string) (CacheKey, e
 
 	return CacheKey{
 		Hash:     hash,
-		FilePath: cfg.Name,
+		FilePath: name,
 	}, nil
 }

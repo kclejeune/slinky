@@ -130,9 +130,6 @@ type FileConfig struct {
 	Mode     uint32   `toml:"mode"`
 	TTL      Duration `toml:"ttl"`
 	Symlink  string   `toml:"symlink"`
-
-	// Name is populated from the map key during Load.
-	Name string `toml:"-"`
 }
 
 func DefaultConfig() *Config {
@@ -176,8 +173,7 @@ func Load(path string) (*Config, error) {
 		cfg.Settings.Symlink.BackupExtension = ".bkp"
 	}
 
-	for name, fc := range cfg.Files {
-		fc.Name = name
+	for _, fc := range cfg.Files {
 		if fc.Render == "" {
 			fc.Render = "native"
 		}
@@ -407,8 +403,7 @@ func ParseProjectConfig(path string, data []byte, configNames []string) (map[str
 
 	projRoot := ProjectRoot(path, configNames)
 
-	for name, fc := range pc.Files {
-		fc.Name = name
+	for _, fc := range pc.Files {
 		if fc.Render == "" {
 			fc.Render = "native"
 		}
