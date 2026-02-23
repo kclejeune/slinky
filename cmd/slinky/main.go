@@ -47,7 +47,9 @@ func main() {
 	)
 
 	root.AddCommand(startCmd())
+	root.AddCommand(runCmd())
 	root.AddCommand(stopCmd())
+	root.AddCommand(restartCmd())
 	root.AddCommand(statusCmd())
 	root.AddCommand(activateCmd())
 	root.AddCommand(deactivateCmd())
