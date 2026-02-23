@@ -35,7 +35,7 @@ type Backend struct {
 	resolver   *resolver.SecretResolver
 	ctxMgr     *slinkycontext.Manager
 
-	cfgMu sync.RWMutex // guards cfg.Files when ctxMgr is nil
+	cfgMu sync.RWMutex // guards cfg
 
 	mu      sync.Mutex
 	fifos   map[string]string             // file name → absolute FIFO path
@@ -81,7 +81,6 @@ func (b *Backend) Mount(ctx context.Context) error {
 	}
 }
 
-// Unmount tears down all FIFOs.
 func (b *Backend) Unmount() error {
 	b.teardown()
 	return nil
@@ -94,6 +93,12 @@ func (b *Backend) Reconfigure() error {
 	default:
 	}
 	return nil
+}
+
+func (b *Backend) UpdateConfig(cfg *config.Config) {
+	b.cfgMu.Lock()
+	b.cfg = cfg
+	b.cfgMu.Unlock()
 }
 
 func (b *Backend) Name() string {
@@ -154,8 +159,13 @@ func (b *Backend) reconcileFIFOs(ctx context.Context) {
 		if mode == 0 {
 			mode = 0o600
 		}
-		if err := unix.Mkfifo(fifoPath, mode); err != nil && !errors.Is(err, fs.ErrExist) {
-			slog.Error("fifo: mkfifo failed", "name", name, "path", fifoPath, "error", err)
+		// Temporarily set umask to 0 so mkfifo creates the FIFO with exact
+		// permissions, regardless of the inherited process umask.
+		oldUmask := unix.Umask(0)
+		mkErr := unix.Mkfifo(fifoPath, mode)
+		unix.Umask(oldUmask)
+		if mkErr != nil && !errors.Is(mkErr, fs.ErrExist) {
+			slog.Error("fifo: mkfifo failed", "name", name, "path", fifoPath, "error", mkErr)
 			continue
 		}
 

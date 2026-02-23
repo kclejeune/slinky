@@ -46,14 +46,12 @@ func testBackend(t *testing.T) (*Backend, string) {
 		},
 		Files: map[string]*config.FileConfig{
 			"netrc": {
-				Name:     "netrc",
 				Render:   "native",
 				Template: tplFile,
 				Mode:     0o600,
 				TTL:      config.Duration(5 * time.Minute),
 			},
 			"docker/config.json": {
-				Name:     "docker/config.json",
 				Render:   "native",
 				Template: dockerTplFile,
 				Mode:     0o600,
@@ -362,7 +360,6 @@ func TestRefreshLoopReRendersFiles(t *testing.T) {
 		},
 		Files: map[string]*config.FileConfig{
 			"test": {
-				Name:     "test",
 				Render:   "native",
 				Template: tplFile,
 				Mode:     0o600,

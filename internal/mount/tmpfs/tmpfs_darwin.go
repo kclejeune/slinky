@@ -4,6 +4,7 @@ package tmpfs
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -51,7 +52,9 @@ func (m *darwinMounter) Mount() error {
 		return fmt.Errorf("diskutil mount at %q: %w", m.path, err)
 	}
 
-	_ = exec.Command("chflags", "hidden", m.path).Run()
+	if err := exec.Command("chflags", "hidden", m.path).Run(); err != nil {
+		slog.Warn("chflags hidden failed", "path", m.path, "error", err)
+	}
 
 	return nil
 }

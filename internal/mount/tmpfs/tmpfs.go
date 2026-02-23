@@ -31,6 +31,8 @@ type Backend struct {
 	ctxMgr     *slinkycontext.Manager
 	mounter    platformMounter
 
+	cfgMu sync.RWMutex // guards cfg
+
 	mu       sync.Mutex
 	rendered map[string]string // file name -> absolute path of written file
 
@@ -116,16 +118,25 @@ func (b *Backend) Reconfigure() error {
 	return nil
 }
 
+func (b *Backend) UpdateConfig(cfg *config.Config) {
+	b.cfgMu.Lock()
+	b.cfg = cfg
+	b.cfgMu.Unlock()
+}
+
 func (b *Backend) Name() string {
 	return "tmpfs"
 }
 
-// effectiveFileNames returns the current set of files to render.
 func (b *Backend) effectiveFileNames() map[string]*config.FileConfig {
 	if b.ctxMgr != nil {
 		return b.ctxMgr.EffectiveFileConfigs()
 	}
-	return b.cfg.Files
+	b.cfgMu.RLock()
+	snap := make(map[string]*config.FileConfig, len(b.cfg.Files))
+	maps.Copy(snap, b.cfg.Files)
+	b.cfgMu.RUnlock()
+	return snap
 }
 
 // renderAll resolves and writes every effective file.
@@ -156,9 +167,11 @@ func (b *Backend) reconcileFiles() error {
 	}
 	b.mu.Unlock()
 
+	var scrubFailed bool
 	for name, path := range toRemove {
 		if err := scrubFile(path); err != nil {
 			slog.Error("scrub failed during reconcile", "file", name, "path", path, "error", err)
+			scrubFailed = true
 		} else {
 			slog.Debug("scrubbed removed file", "file", name)
 		}
@@ -173,6 +186,9 @@ func (b *Backend) reconcileFiles() error {
 		}
 	}
 
+	if scrubFailed {
+		return fmt.Errorf("one or more files could not be securely scrubbed")
+	}
 	return nil
 }
 
@@ -182,6 +198,7 @@ func (b *Backend) renderFile(name string, fc *config.FileConfig) error {
 	if err != nil {
 		return err
 	}
+	defer clear(content)
 
 	destPath := filepath.Join(b.mountPoint, name)
 
@@ -238,7 +255,8 @@ func (b *Backend) atomicWrite(dest string, content []byte, mode os.FileMode) err
 	return nil
 }
 
-// scrubAll zeros and removes all rendered files.
+// scrubAll overwrites every rendered file with zeros before deleting it,
+// preventing secret recovery from RAM-backed storage after unmount.
 func (b *Backend) scrubAll() {
 	b.mu.Lock()
 	rendered := maps.Clone(b.rendered)
@@ -269,37 +287,46 @@ func scrubFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("opening for scrub: %w", err)
 	}
+	defer f.Close()
 
-	zeros := make([]byte, info.Size())
-	if _, err := f.Write(zeros); err != nil {
-		f.Close()
-		return fmt.Errorf("zeroing: %w", err)
+	var buf [32 * 1024]byte // fixed 32KB stack buffer to avoid OOM on large files
+	remaining := info.Size()
+	for remaining > 0 {
+		n := min(int64(len(buf)), remaining)
+		if _, err := f.Write(buf[:n]); err != nil {
+			return fmt.Errorf("zeroing: %w", err)
+		}
+		remaining -= n
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
 		return fmt.Errorf("syncing zeros: %w", err)
 	}
-	f.Close()
 
 	return os.Remove(path)
 }
 
 // refreshInterval returns half the minimum TTL, clamped to at least 1s.
+// Refresh at half the TTL provides a safety margin: secrets are re-rendered
+// before consumers see expired data.
 func (b *Backend) refreshInterval() time.Duration {
 	return max(b.minTTL()/2, 1*time.Second)
 }
 
-// minTTL returns the minimum TTL across all configured files.
 func (b *Backend) minTTL() time.Duration {
 	files := b.effectiveFileNames()
+
+	b.cfgMu.RLock()
+	defaultTTL := b.cfg.Settings.Cache.DefaultTTL
+	b.cfgMu.RUnlock()
+
 	minVal := time.Duration(0)
 	for _, fc := range files {
-		ttl := fc.FileTTL(b.cfg.Settings.Cache.DefaultTTL)
+		ttl := fc.FileTTL(defaultTTL)
 		if minVal == 0 || ttl < minVal {
 			minVal = ttl
 		}
 	}
-	if minVal == 0 {
+	if minVal <= 0 {
 		minVal = 5 * time.Minute
 	}
 	return minVal

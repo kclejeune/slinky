@@ -53,14 +53,12 @@ func testBackend(t *testing.T) (*Backend, string) {
 		},
 		Files: map[string]*config.FileConfig{
 			"netrc": {
-				Name:     "netrc",
 				Render:   "native",
 				Template: tplFile,
 				Mode:     0o600,
 				TTL:      config.Duration(5 * time.Minute),
 			},
 			"docker/config.json": {
-				Name:     "docker/config.json",
 				Render:   "native",
 				Template: dockerTplFile,
 				Mode:     0o600,
@@ -215,7 +213,6 @@ func TestReconfigure(t *testing.T) {
 	}
 	b.cfgMu.Lock()
 	b.cfg.Files["newfile"] = &config.FileConfig{
-		Name:     "newfile",
 		Render:   "native",
 		Template: newTpl,
 		Mode:     0o600,

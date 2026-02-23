@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -39,7 +40,9 @@ type Backend struct {
 	cfg        *config.Config
 	resolver   *resolver.SecretResolver
 	ctxMgr     *slinkycontext.Manager
-	server     *fuse.Server
+
+	serverMu sync.Mutex
+	server   *fuse.Server
 }
 
 // New creates a new FUSE backend. ctxMgr may be nil.
@@ -81,7 +84,9 @@ func (b *Backend) Mount(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("mounting FUSE at %q: %w", b.mountPoint, err)
 	}
+	b.serverMu.Lock()
 	b.server = server
+	b.serverMu.Unlock()
 
 	slog.Info("FUSE mounted", "path", b.mountPoint)
 
@@ -98,8 +103,11 @@ func (b *Backend) Mount(ctx context.Context) error {
 }
 
 func (b *Backend) Unmount() error {
-	if b.server != nil {
-		return b.server.Unmount()
+	b.serverMu.Lock()
+	srv := b.server
+	b.serverMu.Unlock()
+	if srv != nil {
+		return srv.Unmount()
 	}
 	return nil
 }
@@ -107,6 +115,10 @@ func (b *Backend) Unmount() error {
 // Reconfigure is a no-op for FUSE since Lookup/Readdir are already dynamic.
 func (b *Backend) Reconfigure() error {
 	return nil
+}
+
+func (b *Backend) UpdateConfig(cfg *config.Config) {
+	b.cfg = cfg
 }
 
 func (b *Backend) Name() string {

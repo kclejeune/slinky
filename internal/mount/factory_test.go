@@ -84,6 +84,36 @@ func TestNewBackendFifo(t *testing.T) {
 	}
 }
 
+func TestNewBackendAuto(t *testing.T) {
+	cfg := &config.Config{
+		Settings: config.Settings{
+			Mount: config.MountConfig{Backend: config.BackendAuto, MountPoint: "/tmp/test"},
+			Cache: config.CacheConfig{Cipher: config.CipherEphemeral, DefaultTTL: config.Duration(5 * time.Minute)},
+		},
+		Files: make(map[string]*config.FileConfig),
+	}
+
+	b, err := NewBackend(cfg, testResolver(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Auto should resolve to "fuse", "tmpfs", or "fifo" depending on system.
+	name := b.Name()
+	if name != "fuse" && name != "tmpfs" && name != "fifo" {
+		t.Errorf("Name() = %q, want \"fuse\", \"tmpfs\", or \"fifo\"", name)
+	}
+}
+
+func TestFUSEAvailable(t *testing.T) {
+	// Just verify it doesn't panic and returns a boolean.
+	_ = FUSEAvailable()
+}
+
+func TestTmpfsAvailable(t *testing.T) {
+	// Just verify it doesn't panic and returns a boolean.
+	_ = TmpfsAvailable()
+}
+
 func TestNewBackendInvalid(t *testing.T) {
 	cfg := &config.Config{
 		Settings: config.Settings{
