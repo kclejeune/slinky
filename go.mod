@@ -5,7 +5,7 @@ go 1.24.7
 require (
 	filippo.io/age v1.3.1
 	github.com/BurntSushi/toml v1.6.0
-	github.com/charmbracelet/fang v0.4.4
+	github.com/charmbracelet/fang v1.0.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-sprout/sprout v1.0.3
 	github.com/hanwen/go-fuse/v2 v2.9.0
