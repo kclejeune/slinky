@@ -1,6 +1,6 @@
 module github.com/kclejeune/slinky
 
-go 1.24.7
+go 1.25.0
 
 require (
 	filippo.io/age v1.3.1
@@ -12,7 +12,7 @@ require (
 	github.com/kardianos/service v1.2.4
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.6
-	golang.org/x/sys v0.41.0
+	golang.org/x/sys v0.43.0
 	mvdan.cc/sh/v3 v3.12.0
 )
 
