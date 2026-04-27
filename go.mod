@@ -8,7 +8,7 @@ require (
 	github.com/charmbracelet/fang v0.4.4
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-sprout/sprout v1.0.3
-	github.com/hanwen/go-fuse/v2 v2.9.0
+	github.com/hanwen/go-fuse/v2 v2.10.1
 	github.com/kardianos/service v1.2.4
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.6
