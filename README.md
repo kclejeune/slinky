@@ -625,7 +625,40 @@ The SHA-256 hash of each config file is stored in `~/.local/state/slinky/trusted
 1. **Via environment variables** — any env-injection tool (mise, direnv, `op run`, `fnox exec`) populates the shell; `slinky activate` captures it; templates read `{{ env "KEY" }}`.
 2. **Via first-class integrations** — templates pull directly from [fnox](https://fnox.jdx.dev), [secretspec](https://secretspec.dev), or 1Password at render time with the `fnox`, `secretspec`, and `op` template functions. No shell plumbing required, and values are only resolved when a file is actually rendered.
 
-![Tool integration diagram](docs/d2/integration.svg)
+```mermaid
+flowchart LR
+    subgraph inject["Secret Providers"]
+        direction TB
+        fnox["mise + fnox"]
+        vault["vault"]
+        oprun["op run"]
+        sops["sops exec"]
+    end
+
+    subgraph slinky["Slinky"]
+        direction TB
+        render["template rendering"] --> cache["encrypted cache"] --> mount["FUSE / tmpfs / FIFO secret mount"]
+    end
+
+    subgraph files["Linked Secrets"]
+        direction TB
+        netrc["~/.netrc"]
+        npmrc["~/.npmrc"]
+        dockercfg["~/.docker/config.json"]
+    end
+
+    subgraph tools["Secret Consumers"]
+        direction TB
+        git["git"]
+        npm["npm"]
+        docker["docker"]
+        kubectl["kubectl"]
+    end
+
+    inject -->|"env vars (per-directory context)"| slinky
+    slinky -->|virtual files via symlinks| files
+    files -->|standard file reads| tools
+```
 
 Integration lookups run in the project directory of the file's activation, so fnox and secretspec discover the project's own `fnox.toml` / `secretspec.toml`. Resolved values inherit the file's encrypted cache and TTL — providers are consulted once per render, not once per read. `slinky doctor` verifies that every integration your templates reference is installed and authenticable.
 
@@ -708,7 +741,57 @@ Any tool that populates environment variables works. Start the daemon once, call
 
 ## Architecture
 
-![System architecture diagram](docs/d2/overview.svg)
+```mermaid
+flowchart LR
+    subgraph client["Slinky Client Context"]
+        subgraph cfg["Config Context"]
+            global["Global Config"]
+            project["Project Config"]
+        end
+        subgraph providers["Secret Providers"]
+            fnox["mise + fnox"]
+            vault["vault"]
+            oprun["op run"]
+            sops["sops exec"]
+        end
+    end
+
+    wire["Daemon Protocol Message"]
+
+    subgraph daemon["Slinky Daemon"]
+        ctx["Context Manager"]
+        subgraph mount["Mount Backend"]
+            FUSE
+            tmpfs
+            FIFO
+        end
+        symlinks["Symlink Manager"]
+        subgraph resolver["Secret Resolver"]
+            cache["Encrypted Cache"]
+            renderer["Template Renderer"]
+            cache -->|cache miss| renderer
+        end
+        ctx -->|reconcile| symlinks
+        ctx -->|reconfigure| mount
+        mount -->|resolve| resolver
+        resolver -->|plaintext bytes| mount
+    end
+
+    subgraph links["Linked Files"]
+        netrc["~/.netrc"]
+        npmrc["~/.npmrc"]
+        dockercfg["~/.docker/config.json"]
+    end
+
+    app["Applications"]
+
+    providers -->|secret env variables| wire
+    cfg -->|file templates + target links| wire
+    wire -->|"activate: {dir, env, pid}"| ctx
+    symlinks -->|creates symlinks| links
+    links -->|OS follows symlink| mount
+    app -->|"read()"| links
+```
 
 For internal details — package structure, data flow sequence diagrams, concurrency model, and component descriptions — see [docs/architecture.md](docs/architecture.md).
 

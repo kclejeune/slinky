@@ -1,5 +1,4 @@
 [tools]
-d2 = "0.7"
 go = "1.26"
 golangci-lint = "2.10"
 goreleaser = "2.13.3"
@@ -11,7 +10,6 @@ prek = "0.3"
 # cross-compiled pure-Go (goreleaser sets CGO_ENABLED=0) and fall back
 # to the op CLI for 1Password.
 CGO_ENABLED = "1"
-D2_LAYOUT = "elk"
 
 [tasks.lint]
 description = "Run linter"

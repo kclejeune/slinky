@@ -6,9 +6,57 @@ This document describes the internal architecture of `slinky`. For usage and con
 
 ## Overview
 
-![System architecture diagram](d2/overview.svg)
+```mermaid
+flowchart LR
+    subgraph client["Slinky Client Context"]
+        subgraph cfg["Config Context"]
+            global["Global Config"]
+            project["Project Config"]
+        end
+        subgraph providers["Secret Providers"]
+            fnox["mise + fnox"]
+            vault["vault"]
+            oprun["op run"]
+            sops["sops exec"]
+        end
+    end
 
-_Source: [d2/overview.d2](d2/overview.d2)_
+    wire["Daemon Protocol Message"]
+
+    subgraph daemon["Slinky Daemon"]
+        ctx["Context Manager"]
+        subgraph mount["Mount Backend"]
+            FUSE
+            tmpfs
+            FIFO
+        end
+        symlinks["Symlink Manager"]
+        subgraph resolver["Secret Resolver"]
+            cache["Encrypted Cache"]
+            renderer["Template Renderer"]
+            cache -->|cache miss| renderer
+        end
+        ctx -->|reconcile| symlinks
+        ctx -->|reconfigure| mount
+        mount -->|resolve| resolver
+        resolver -->|plaintext bytes| mount
+    end
+
+    subgraph links["Linked Files"]
+        netrc["~/.netrc"]
+        npmrc["~/.npmrc"]
+        dockercfg["~/.docker/config.json"]
+    end
+
+    app["Applications"]
+
+    providers -->|secret env variables| wire
+    cfg -->|file templates + target links| wire
+    wire -->|"activate: {dir, env, pid}"| ctx
+    symlinks -->|creates symlinks| links
+    links -->|OS follows symlink| mount
+    app -->|"read()"| links
+```
 
 `slinky` is a client–daemon system connected over a Unix socket. The daemon owns the mount point, context state, cache, and symlinks. CLI invocations (including shell hooks) communicate with it via a simple JSON-over-socket protocol.
 
@@ -43,9 +91,33 @@ internal/
 
 ### File read path
 
-![File read path diagram](d2/read.svg)
+```mermaid
+sequenceDiagram
+    participant app as Application
+    participant mount as Mount Backend
+    participant resolver as SecretResolver
+    participant ctx as ContextManager
+    participant cache as Encrypted Cache
+    participant renderer as Template Renderer
 
-_Source: [d2/read.d2](d2/read.d2)_
+    app->>mount: read(~/.netrc)
+    mount->>resolver: Resolve(name)
+    resolver->>ctx: Effective(name)
+    ctx-->>resolver: FileConfig + env
+    resolver->>cache: Get(cacheKey)
+    alt fresh (age < TTL)
+        cache-->>resolver: decrypt → plaintext
+    else stale (TTL ≤ age < 2×TTL)
+        cache-->>resolver: stale plaintext
+        resolver->>resolver: spawn async re-render
+    else miss
+        resolver->>renderer: Render(template, env)
+        renderer-->>resolver: plaintext
+        resolver->>cache: Encrypt + Set(key, ct)
+    end
+    resolver-->>mount: plaintext bytes
+    mount-->>app: file content
+```
 
 ```
 App reads ~/.netrc
@@ -65,9 +137,36 @@ App reads ~/.netrc
 
 ### Activation path
 
-![Activation path diagram](d2/activation.svg)
+```mermaid
+sequenceDiagram
+    participant shell as Shell Hook
+    participant socket as Control Socket
+    participant ctx as ContextManager
+    participant trust as TrustStore
+    participant syml as Symlink Manager
+    participant mount as Mount Backend
 
-_Source: [d2/activation.d2](d2/activation.d2)_
+    shell->>shell: Getsid() → session PID
+    shell->>socket: activate {dir, env, pid}
+    socket->>ctx: Activate(dir, env, pid)
+    ctx->>ctx: auto-deactivate prev dirs for PID
+    ctx->>ctx: DiscoverLayers(dir → HOME)
+    ctx->>trust: ReadAndVerifyPaths(paths)
+    opt untrusted config
+        trust-->>ctx: ErrUntrusted
+        ctx-->>socket: error - run slinky allow
+        socket-->>shell: error
+    end
+    ctx->>ctx: merge layers + recompute()
+    opt conflict
+        ctx-->>socket: rollback + conflict error
+        socket-->>shell: error
+    end
+    ctx->>syml: Reconcile(effective)
+    ctx->>mount: Reconfigure(effective)
+    ctx-->>socket: file list
+    socket-->>shell: ok + file list
+```
 
 ```
 Shell hook: slinky activate --hook
