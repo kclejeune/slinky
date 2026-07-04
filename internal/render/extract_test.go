@@ -229,3 +229,28 @@ func TestExtractEnvVarsCustomDelims(t *testing.T) {
 		t.Errorf("vars = %v, want DELIM_VAR_A and DELIM_VAR_B", vars)
 	}
 }
+
+func TestExtractProviderFuncs(t *testing.T) {
+	tmpDir := t.TempDir()
+	tplFile := filepath.Join(tmpDir, "test.tpl")
+	tpl := `a={{ fnox "A" }} b={{ op "op://v/i/f" }} c={{ env "PLAIN" }}`
+	if err := os.WriteFile(tplFile, []byte(tpl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	used := ExtractProviderFuncs("test", &config.FileConfig{Template: tplFile})
+	if used == nil {
+		t.Fatal("ExtractProviderFuncs() = nil")
+	}
+	if !used["fnox"] || !used["op"] {
+		t.Errorf("used = %v, want fnox and op", used)
+	}
+	if used["secretspec"] {
+		t.Errorf("secretspec should not be reported, got %v", used)
+	}
+
+	// Command-mode files return nil.
+	if got := ExtractProviderFuncs("cmd", &config.FileConfig{Render: "command", Command: "x"}); got != nil {
+		t.Errorf("command mode = %v, want nil", got)
+	}
+}

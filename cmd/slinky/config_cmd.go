@@ -19,6 +19,7 @@ import (
 	slinkycontext "github.com/kclejeune/slinky/internal/context"
 	"github.com/kclejeune/slinky/internal/control"
 	"github.com/kclejeune/slinky/internal/resolver"
+	"github.com/kclejeune/slinky/internal/secrets"
 )
 
 const defaultGlobalConfigTemplate = `# slinky global configuration
@@ -37,6 +38,20 @@ default_ttl = "5m"
 # [settings.audit]
 # enabled = true
 # log = "~/.local/state/slinky/audit.log"
+
+# Secret-manager integrations, available as template functions
+# {{ fnox "KEY" }}, {{ secretspec "KEY" }}, {{ op "op://vault/item/field" }}:
+#
+# [settings.integrations.fnox]
+# profile = "production"
+#
+# [settings.integrations.secretspec]
+# profile = "development"
+# provider = "keyring"
+#
+# [settings.integrations.onepassword]
+# auth = "auto"              # "auto", "desktop-app", "service-account", "cli"
+# account = "my.1password.com"  # for desktop-app auth
 
 # Define secret files below. Example:
 #
@@ -270,6 +285,7 @@ and template parsing. Exits non-zero if any errors are found.`,
 			}
 
 			// Probe-render global files to catch template syntax errors.
+			secrets.Configure(globalCfg.Settings.Integrations, version)
 			ageCipher, cipherErr := cipher.NewAgeEphemeral()
 			if cipherErr != nil {
 				return fmt.Errorf("initializing cipher: %w", cipherErr)
@@ -426,6 +442,8 @@ func renderCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
 			}
+
+			secrets.Configure(cfg.Settings.Integrations, version)
 
 			// We don't need a real cipher/cache for render-only.
 			ageCipher, err := cipher.NewAgeEphemeral()

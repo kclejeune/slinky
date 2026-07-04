@@ -42,7 +42,7 @@ func (r *SecretResolver) UpdateConfig(cfg *config.Config) {
 //   - Stale hit: return cached, kick off async re-render
 //   - Miss: render synchronously, cache, return
 func (r *SecretResolver) Resolve(name string) ([]byte, error) {
-	fc, envMap, envLookup, err := r.lookupFile(name)
+	fc, envMap, envLookup, workDir, err := r.lookupFile(name)
 	if err != nil {
 		return nil, err
 	}
@@ -62,42 +62,43 @@ func (r *SecretResolver) Resolve(name string) ([]byte, error) {
 
 	if entry != nil && entry.Stale() {
 		slog.Debug("cache hit (stale), async refresh", "file", name)
-		r.asyncRefresh(name, fc, keyStr, envLookup, envMap)
+		r.asyncRefresh(name, fc, keyStr, envLookup, envMap, workDir)
 		return r.cache.Decrypt(entry)
 	}
 
 	slog.Debug("cache miss, rendering", "file", name)
-	return r.renderAndCache(name, fc, keyStr, envLookup, envMap)
+	return r.renderAndCache(name, fc, keyStr, envLookup, envMap, workDir)
 }
 
 // RenderOnly renders without caching (used by the CLI render command).
 func (r *SecretResolver) RenderOnly(name string) ([]byte, error) {
-	fc, envMap, envLookup, err := r.lookupFile(name)
+	fc, envMap, envLookup, workDir, err := r.lookupFile(name)
 	if err != nil {
 		return nil, err
 	}
 
 	renderer := render.NewRenderer(fc)
-	return renderer.Render(name, fc, envLookup, envMap)
+	return renderer.Render(name, fc, envLookup, envMap, workDir)
 }
 
-// lookupFile returns the file config, env map, and env lookup for the named file.
+// lookupFile returns the file config, env map, env lookup, and working
+// directory for the named file.
 func (r *SecretResolver) lookupFile(
 	name string,
-) (*config.FileConfig, map[string]string, render.EnvLookup, error) {
+) (*config.FileConfig, map[string]string, render.EnvLookup, string, error) {
 	if r.ctxMgr != nil {
 		eff := r.ctxMgr.Effective()
 		if ef, ok := eff[name]; ok {
-			return ef.FileConfig, ef.Env, ef.EnvLookupFunc(), nil
+			return ef.FileConfig, ef.Env, ef.EnvLookupFunc(), ef.Dir, nil
 		}
 	}
 
 	cfg := r.cfg.Load()
 	fc, ok := cfg.Files[name]
 	if !ok {
-		return nil, nil, nil, fmt.Errorf("unknown file: %q", name)
+		return nil, nil, nil, "", fmt.Errorf("unknown file: %q", name)
 	}
-	return fc, nil, nil, nil
+	return fc, nil, nil, "", nil
 }
 
 func (r *SecretResolver) renderAndCache(
@@ -106,9 +107,10 @@ func (r *SecretResolver) renderAndCache(
 	keyStr string,
 	envLookup render.EnvLookup,
 	envMap map[string]string,
+	workDir string,
 ) ([]byte, error) {
 	renderer := render.NewRenderer(fc)
-	content, err := renderer.Render(name, fc, envLookup, envMap)
+	content, err := renderer.Render(name, fc, envLookup, envMap, workDir)
 	if err != nil {
 		return nil, fmt.Errorf("rendering %q: %w", name, err)
 	}
@@ -128,6 +130,7 @@ func (r *SecretResolver) asyncRefresh(
 	keyStr string,
 	envLookup render.EnvLookup,
 	envMap map[string]string,
+	workDir string,
 ) {
 	r.mu.Lock()
 	if r.refreshing[name] {
@@ -144,7 +147,7 @@ func (r *SecretResolver) asyncRefresh(
 			r.mu.Unlock()
 		}()
 
-		if _, err := r.renderAndCache(name, fc, keyStr, envLookup, envMap); err != nil {
+		if _, err := r.renderAndCache(name, fc, keyStr, envLookup, envMap, workDir); err != nil {
 			slog.Error("async refresh failed", "file", name, "error", err)
 		} else {
 			slog.Debug("async refresh completed", "file", name)

@@ -32,6 +32,7 @@ internal/
     fifo/            Named-pipe (FIFO) backend (no mount privileges required)
   render/            Template rendering (native + command), env var extraction
   resolver/          Secret resolution: cache lookup, render, async refresh
+  secrets/           Secret-manager integrations (fnox, secretspec, 1Password)
   symlink/           Symlink creation and reconciliation
   trust/             Project config trust store (allow/deny, SHA-256 hashes)
 ```
@@ -244,12 +245,27 @@ Peer credential verification via `SO_PEERCRED` (Linux) or `LOCAL_PEERCRED` (macO
 - `envDefault "KEY" "fallback"` — env var with default
 - `file "path"` — read file contents (path expansion)
 - `exec "cmd" "args..."` — run command, capture stdout (10 s timeout)
+- `fnox "KEY"` / `secretspec "KEY"` / `op "op://..."` — secret-manager integrations (see below)
 
 **Command mode**: Execute external command, capture stdout. Args support path expansion.
+
+**Working directory**: `EffectiveFile.Dir` carries the activation directory of the layer that contributed each file. It is threaded through `Render(..., workDir)` so `exec`, command render mode, and the integration functions run in the file's own project directory — tools that discover config from the cwd (fnox.toml, secretspec.toml) resolve project-locally. Global files run in the daemon's cwd.
 
 **Env var extraction** (`extract.go`): Static AST walk identifies `env`/`envDefault` calls with string literal keys. Used by `FilterEnv()` to narrow captured env to only referenced variables, reducing cache key churn and limiting the env surface transmitted over IPC.
 
 **Template hot-reload**: A `render.Watcher` uses `fsnotify` to detect template file changes and invalidates the cache entry for affected files, so the next read picks up the new template without restarting the daemon.
+
+### Secret-manager integrations (`internal/secrets/`)
+
+Resolvers for fnox, secretspec, and 1Password, exposed to templates as the `fnox`, `secretspec`, and `op` functions. Active settings are process-global (`secrets.Configure`, mirroring `log/slog` and `audit`), installed at daemon start, on config reload, and by CLI render paths.
+
+- **fnox / secretspec**: shell out to their CLIs (`fnox get KEY`, `secretspec get KEY`) with configured profile/provider flags, running in the file's project directory with the activation env merged over the daemon env (so activation-time `PATH` finds mise-installed binaries even under launchd's minimal environment).
+- **1Password**: `planOPAuth` turns the configured mode into a concrete plan:
+  - `sdk-service-account` / `sdk-desktop-app` — in-process via the official Go SDK. Authenticated clients are cached per auth plan (construction runs a WASM core and, for desktop auth, a human authorization prompt); the cache is dropped on `Configure`. The SDK does not compile with `CGO_ENABLED=0` on macOS/Linux, so all SDK use lives behind `//go:build cgo || windows` with a pure-Go fallback file.
+  - `cli` — `op read <ref>`, which itself supports the desktop app session and service account tokens. This is the automatic fallback in pure-Go builds.
+- Provider calls have a generous 2-minute timeout to accommodate interactive authorization. Resolved values are never cached by this package — rendered file content is cached (encrypted, TTL'd) by the resolver as usual.
+
+`render.ExtractProviderFuncs` reports which integration functions a template references; `slinky doctor` uses it to check only the integrations actually in use (binary on PATH, viable 1Password auth plan).
 
 ### Encrypted cache (`internal/cache/`)
 

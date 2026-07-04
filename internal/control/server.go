@@ -245,6 +245,7 @@ func (s *Server) handleActivate(conn net.Conn, req Request) {
 			ef.FileConfig,
 			ef.EnvLookupFunc(),
 			ef.Env,
+			ef.Dir,
 		); renderErr != nil {
 			msg := fmt.Sprintf("file %q: render failed: %v", name, renderErr)
 			slog.Warn("render probe failed", "file", name, "error", renderErr)
@@ -412,6 +413,9 @@ func writeJSON(conn net.Conn, v any) {
 		return
 	}
 	data = append(data, '\n')
+	// Refresh the I/O deadline: request handling may legitimately exceed
+	// the initial deadline (render probes with interactive provider auth).
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	if _, err := conn.Write(data); err != nil {
 		slog.Error("failed to write response", "error", err)
 	}

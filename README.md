@@ -18,7 +18,7 @@ Many developer tools expect secrets in well-known dotfiles: `~/.netrc` for git/c
 
 `slinky` generalizes this model to arbitrary file templates. It runs as a lightweight daemon that exposes virtual files at stable paths. When a process reads one of these files, `slinky` renders the backing template using Go's `text/template` with values from environment variables and never writes plaintext to persistent storage. Rendered output is cached in encrypted memory with a configurable TTL so subsequent reads are fast.
 
-Notably, `slinky` does not resolve secrets itself. It reads environment variables that your existing tools have already populated. This keeps it focused on one job — file materialization — and avoids duplicating the secret resolution logic that fnox, 1Password CLI, and similar tools already handle well.
+Notably, `slinky` stores no secrets itself. Values come from environment variables that your existing tools have already populated, or — via first-class [integrations](#integration-with-existing-tools) — are pulled at render time from [fnox](https://fnox.jdx.dev), [secretspec](https://secretspec.dev), or 1Password (including desktop-app authenticated sessions). Either way, storage and authentication stay with the tools that already handle them well; slinky stays focused on one job — file materialization.
 
 ## Quickstart
 
@@ -232,6 +232,35 @@ enabled = false
 # log = "~/.local/state/slinky/audit.log"
 
 
+# ─── Secret-manager integrations ───────────────────────────────
+# Available in templates as {{ fnox "KEY" }}, {{ secretspec "KEY" }},
+# and {{ op "op://vault/item/field" }}. All settings are optional —
+# the functions work with each tool's own defaults.
+
+[settings.integrations.fnox]
+# bin = "fnox"            # binary to invoke
+# profile = "production"  # fnox --profile for all lookups
+
+[settings.integrations.secretspec]
+# bin = "secretspec"
+# profile = "development" # secretspec --profile
+# provider = "keyring"    # secretspec --provider
+
+[settings.integrations.onepassword]
+# How to authenticate:
+#   auto:            (default) service account token if present, else
+#                    desktop app via the SDK (CGO builds), else op CLI
+#   desktop-app:     1Password desktop app via the official Go SDK;
+#                    requires 'account' and a CGO-enabled build
+#   service-account: SDK with a service account token
+#   cli:             op CLI (works with the CLI's own desktop app
+#                    integration or op signin)
+# auth = "auto"
+# account = "my.1password.com"           # desktop-app account name
+# token_env = "OP_SERVICE_ACCOUNT_TOKEN" # env var holding the token
+# bin = "op"                             # CLI binary for cli mode
+
+
 # ─── Symlink settings ──────────────────────────────────────────
 
 [settings.symlink]
@@ -393,10 +422,28 @@ If the target format itself contains `{{` (Helm values files, Prometheus configs
 {{ file "~/.config/git/username" | trimSpace }}
 ```
 
-**`exec`** — Run a command and return its stdout (10 s timeout). Use sparingly — if most values come from `exec`, consider command render mode instead.
+**`exec`** — Run a command and return its stdout (10 s timeout). Runs in the file's project directory for project-scoped files. Use sparingly — if most values come from `exec`, consider command render mode instead.
 
 ```
-{{ exec "op" "read" "op://Private/GitHub PAT/credential" }}
+{{ exec "date" "+%Y-%m-%d" }}
+```
+
+**`fnox`** — Resolve a secret from [fnox](https://fnox.jdx.dev) (see [Integrations](#integration-with-existing-tools)).
+
+```
+{{ fnox "DATABASE_URL" }}
+```
+
+**`secretspec`** — Resolve a declared secret via [secretspec](https://secretspec.dev).
+
+```
+{{ secretspec "NPM_TOKEN" }}
+```
+
+**`op`** — Resolve a 1Password [secret reference](https://developer.1password.com/docs/cli/secret-references/) via the SDK (desktop app or service account) or the op CLI.
+
+```
+{{ op "op://Private/GitHub PAT/credential" }}
 ```
 
 All [sprout functions](https://docs.atom.codes/sprout) are available: `b64enc`, `b64dec`, `upper`, `lower`, `trimSpace`, `replace`, `join`, `list`, `default`, `ternary`, `toJson`, and many more.
@@ -444,7 +491,7 @@ machine {{ envDefault "REGISTRY_HOST" "registry.example.com" }}
 
 ### Command mode
 
-Command mode delegates rendering entirely to an external process. The command's stdout becomes the file content.
+Command mode delegates rendering entirely to an external process. The command's stdout becomes the file content. For project-scoped files the command runs in the file's project directory, so tools that discover their config from the working directory behave as if you ran them in the project yourself.
 
 Use this when:
 
@@ -529,7 +576,7 @@ The FIFO backend creates named pipes at the mount point — one per file. When a
 
 ### What slinky does not do
 
-- **It is not a secrets vault or resolver.** It does not talk to 1Password, age, sops, or any secret provider directly. It reads environment variables. Use fnox, mise, op run, direnv, etc. to populate those variables first.
+- **It is not a secrets vault.** It stores no secrets of its own and has no unlock passphrase. Values come from environment variables or, via the [integrations](#integration-with-existing-tools), are pulled at render time from the managers that do own them (fnox, secretspec, 1Password) — authentication and storage stay entirely with those tools.
 - **It is not a process isolation tool.** Any process running as your user can read the mounted files. It protects against secrets at rest on disk, not against malicious processes with your UID.
 - **It does not manage environment variables.** Use `fnox`, `op run`, `direnv`, or `mise` for env var injection. `slinky` consumes those variables to produce _files_.
 
@@ -573,23 +620,80 @@ The SHA-256 hash of each config file is stored in `~/.local/state/slinky/trusted
 
 ## Integration with existing tools
 
-`slinky` is a file materialization layer that sits downstream of your secrets management toolchain.
+`slinky` is a file materialization layer that sits downstream of your secrets management toolchain. Secrets reach templates two ways:
+
+1. **Via environment variables** — any env-injection tool (mise, direnv, `op run`, `fnox exec`) populates the shell; `slinky activate` captures it; templates read `{{ env "KEY" }}`.
+2. **Via first-class integrations** — templates pull directly from [fnox](https://fnox.jdx.dev), [secretspec](https://secretspec.dev), or 1Password at render time with the `fnox`, `secretspec`, and `op` template functions. No shell plumbing required, and values are only resolved when a file is actually rendered.
 
 ![Tool integration diagram](docs/d2/integration.svg)
 
-### fnox + mise
+Integration lookups run in the project directory of the file's activation, so fnox and secretspec discover the project's own `fnox.toml` / `secretspec.toml`. Resolved values inherit the file's encrypted cache and TTL — providers are consulted once per render, not once per read. `slinky doctor` verifies that every integration your templates reference is installed and authenticable.
 
-fnox manages secrets across providers (age, 1Password) and mise injects them into your shell environment. Combined with the `hooks.cd` pattern above, secrets flow automatically to `slinky` templates via `{{ env "KEY" }}`.
+### fnox
 
-### 1Password CLI
+[fnox](https://fnox.jdx.dev) stores secrets encrypted in git or as references to cloud providers. Two ways to combine it with slinky:
 
-**Via environment (native mode):** Use `op run` to inject 1Password secrets as env vars, then activate:
+**Direct (template function):** Pull values straight from the project's `fnox.toml` — works even when no shell hook has run:
 
-```bash
-op run --env-file=.env -- slinky activate
+```
+machine github.com
+  login {{ fnox "GITHUB_USERNAME" }}
+  password {{ fnox "GITHUB_TOKEN" }}
 ```
 
-**Direct rendering (command mode):** Use `op inject` directly with its own template syntax:
+```toml
+# Optional: pin a profile for all fnox lookups
+[settings.integrations.fnox]
+profile = "production"
+```
+
+**Via environment:** `eval "$(fnox activate bash)"` loads secrets into your shell on `cd`; slinky's own hook captures them for `{{ env "KEY" }}` templates. Use this when many tools consume the same env vars.
+
+### secretspec
+
+[secretspec](https://secretspec.dev) declares *what* secrets a project needs in a committed `secretspec.toml` while values live in a provider (keyring, 1Password, dotenv, ...). The `secretspec` template function resolves declared keys through the user's configured provider:
+
+```
+//registry.npmjs.org/:_authToken={{ secretspec "NPM_TOKEN" }}
+```
+
+```toml
+# Optional: pin profile/provider instead of the user-level defaults
+[settings.integrations.secretspec]
+profile = "development"
+provider = "keyring"
+```
+
+Because slinky runs `secretspec` in the project directory, each project resolves against its own declarations — and `secretspec check` remains the source of truth for what's required.
+
+### 1Password
+
+The `op` template function resolves [secret reference URIs](https://developer.1password.com/docs/cli/secret-references/):
+
+```
+machine github.com
+  login {{ op "op://Private/GitHub/username" }}
+  password {{ op "op://Private/GitHub/token" }}
+```
+
+Authentication (`settings.integrations.onepassword.auth`):
+
+- **`auto`** (default) — a service account token (`OP_SERVICE_ACCOUNT_TOKEN`, from the daemon env or captured at activation) is used if present; otherwise the desktop app via the SDK when available; otherwise the `op` CLI.
+- **`desktop-app`** — in-process via the official [1Password Go SDK](https://github.com/1Password/onepassword-sdk-go), authorized by the 1Password **desktop app**: no tokens on disk, human-in-the-loop approval, and automatic re-auth after the app locks/unlocks. Setup:
+  1. In the 1Password app: **Settings → Developer → Integrate with other apps** (under "Integrate with the 1Password SDKs").
+  2. Configure your account name as shown in the app's sidebar:
+     ```toml
+     [settings.integrations.onepassword]
+     auth = "desktop-app"
+     account = "my.1password.com"
+     ```
+  3. The first resolution triggers an authorization prompt in the 1Password app.
+- **`service-account`** — in-process via the SDK using a [service account](https://developer.1password.com/docs/service-accounts/) token. Set `token_env` to read a different variable than `OP_SERVICE_ACCOUNT_TOKEN`.
+- **`cli`** — shell out to `op read`. The CLI has its own desktop-app integration (**Settings → Developer → Integrate with 1Password CLI**), so biometric-backed desktop sessions work here too.
+
+> **Build note:** the SDK's desktop-app integration requires a CGO-enabled build on macOS/Linux. `go install github.com/kclejeune/slinky/cmd/slinky@latest` on a machine with a C toolchain (any macOS with Xcode CLT) includes it. The prebuilt release archives are pure-Go: on those, `auto` transparently uses the `op` CLI — which still authenticates through the desktop app session. `slinky doctor` reports which path is active.
+
+**Command render mode** remains available if you prefer `op inject` with its own template syntax:
 
 ```toml
 [files.netrc]

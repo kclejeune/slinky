@@ -29,6 +29,7 @@ import (
 	"github.com/kclejeune/slinky/internal/reload"
 	"github.com/kclejeune/slinky/internal/render"
 	"github.com/kclejeune/slinky/internal/resolver"
+	"github.com/kclejeune/slinky/internal/secrets"
 	"github.com/kclejeune/slinky/internal/symlink"
 	"github.com/kclejeune/slinky/internal/trust"
 )
@@ -124,6 +125,8 @@ func runForeground(mountBackend string) error {
 			old.Close()
 		}
 	}()
+
+	secrets.Configure(cfg.Settings.Integrations, version)
 
 	ageCipher, err := cipher.New(string(cfg.Settings.Cache.Cipher))
 	if err != nil {
@@ -341,6 +344,19 @@ func runForeground(mountBackend string) error {
 		},
 		Handle: func(_, new *config.Config, _ *config.DiffResult) {
 			setupAudit(new.Settings.Audit)
+		},
+	})
+
+	// Rule 7: reconfigure secret-manager integrations.
+	dispatcher.Register(reload.Rule{
+		Name: "reconfigure-integrations",
+		Kind: reload.Callback,
+		Match: func(diff *config.DiffResult) bool {
+			return diff.OldSettings.Integrations != diff.NewSettings.Integrations
+		},
+		Handle: func(_, new *config.Config, _ *config.DiffResult) {
+			secrets.Configure(new.Settings.Integrations, version)
+			slog.Info("secret-manager integrations reconfigured")
 		},
 	})
 
