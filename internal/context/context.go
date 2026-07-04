@@ -51,6 +51,11 @@ type Activation struct {
 type EffectiveFile struct {
 	*config.FileConfig
 	Env map[string]string
+	// Dir is the activation directory that contributed this file, used as
+	// the working directory for render-time subprocesses (command render
+	// mode, exec, and secret-manager integrations) so tools like fnox and
+	// secretspec discover the project's own config. Empty for global files.
+	Dir string
 }
 
 func (ef *EffectiveFile) EnvLookupFunc() render.EnvLookup {
@@ -228,6 +233,7 @@ func (m *Manager) RefreshActivation(dir string) error {
 			overrides[name] = &EffectiveFile{
 				FileConfig: fc,
 				Env:        layer.Env,
+				Dir:        act.Dir,
 			}
 		}
 	}
@@ -358,6 +364,7 @@ func (m *Manager) Activate(dir string, env map[string]string, pid int) ([]string
 			overrides[name] = &EffectiveFile{
 				FileConfig: fc,
 				Env:        layer.Env,
+				Dir:        dir,
 			}
 		}
 	}

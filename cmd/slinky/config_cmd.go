@@ -19,6 +19,7 @@ import (
 	slinkycontext "github.com/kclejeune/slinky/internal/context"
 	"github.com/kclejeune/slinky/internal/control"
 	"github.com/kclejeune/slinky/internal/resolver"
+	"github.com/kclejeune/slinky/internal/secrets"
 )
 
 const defaultGlobalConfigTemplate = `# slinky global configuration
@@ -31,6 +32,26 @@ mount_point = "~/.secrets.d"
 [settings.cache]
 cipher = "ephemeral"            # "ephemeral", "auto", "keychain", "keyring", or "keyctl" (Linux only)
 default_ttl = "5m"
+
+# Record secret reads to an audit log (view with "slinky audit"):
+#
+# [settings.audit]
+# enabled = true
+# log = "~/.local/state/slinky/audit.log"
+
+# Secret-manager integrations, available as template functions
+# {{ fnox "KEY" }}, {{ secretspec "KEY" }}, {{ op "op://vault/item/field" }}:
+#
+# [settings.integrations.fnox]
+# profile = "production"
+#
+# [settings.integrations.secretspec]
+# profile = "development"
+# provider = "keyring"
+#
+# [settings.integrations.onepassword]
+# auth = "auto"              # "auto", "desktop-app", "service-account", "cli"
+# account = "my.1password.com"  # for desktop-app auth
 
 # Define secret files below. Example:
 #
@@ -110,7 +131,7 @@ func cfgCmd() *cobra.Command {
 	var dir string
 
 	cmd := &cobra.Command{
-		Use:     "config",
+		Use:     "config [directory]",
 		Aliases: []string{"cfg"},
 		Short:   "Show the resolved config hierarchy for a directory",
 		GroupID: "debug",
@@ -118,7 +139,11 @@ func cfgCmd() *cobra.Command {
 
 Shows the global config, discovered project configs, and the effective
 file set with which layer contributes each file (deepest wins).`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				dir = args[0]
+			}
 			if dir == "" {
 				var err error
 				dir, err = os.Getwd()
@@ -212,13 +237,17 @@ func cfgValidateCmd() *cobra.Command {
 	var dir string
 
 	cmd := &cobra.Command{
-		Use:   "validate",
+		Use:   "validate [directory]",
 		Short: "Validate config files without starting the daemon",
 		Long: `Check global and project config files for errors.
 
 Validates TOML syntax, required fields, template paths, render modes,
 and template parsing. Exits non-zero if any errors are found.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				dir = args[0]
+			}
 			if dir == "" {
 				var err error
 				dir, err = os.Getwd()
@@ -256,6 +285,7 @@ and template parsing. Exits non-zero if any errors are found.`,
 			}
 
 			// Probe-render global files to catch template syntax errors.
+			secrets.Configure(globalCfg.Settings.Integrations, version)
 			ageCipher, cipherErr := cipher.NewAgeEphemeral()
 			if cipherErr != nil {
 				return fmt.Errorf("initializing cipher: %w", cipherErr)
@@ -402,15 +432,18 @@ func fileSource(fc *config.FileConfig) string {
 
 func renderCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "render <name>",
-		Short:   "Render a single file to stdout (debug)",
-		GroupID: "debug",
-		Args:    cobra.ExactArgs(1),
+		Use:               "render <name>",
+		Short:             "Render a single file to stdout (debug)",
+		GroupID:           "debug",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeFileNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(cfgFile)
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
 			}
+
+			secrets.Configure(cfg.Settings.Integrations, version)
 
 			// We don't need a real cipher/cache for render-only.
 			ageCipher, err := cipher.NewAgeEphemeral()
@@ -509,9 +542,10 @@ func cacheCmd() *cobra.Command {
 	})
 
 	cmd.AddCommand(&cobra.Command{
-		Use:   "get <key>",
-		Short: "Decrypt and print a cached entry",
-		Args:  cobra.ExactArgs(1),
+		Use:               "get <key>",
+		Short:             "Decrypt and print a cached entry",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeCacheKeys,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client := control.NewClient("")
 			resp, err := client.CacheGet(args[0])
@@ -526,5 +560,65 @@ func cacheCmd() *cobra.Command {
 		},
 	})
 
+	cmd.AddCommand(&cobra.Command{
+		Use:   "warm",
+		Short: "Pre-render all effective files into the cache",
+		Long: `Ask the daemon to render every effective file into the encrypted
+cache so subsequent reads are served without render latency. Useful after
+activating a context or reloading config.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client := control.NewClient("")
+			resp, err := client.CacheWarm()
+			if err != nil {
+				return err
+			}
+			if !resp.OK {
+				return fmt.Errorf("cache warm failed: %s", resp.Error)
+			}
+
+			for _, e := range resp.Errors {
+				fmt.Fprintf(os.Stderr, "error: %s\n", e)
+			}
+			fmt.Fprintf(os.Stderr, "warmed %d file(s)\n", resp.Warmed)
+			if len(resp.Errors) > 0 {
+				return fmt.Errorf("%d file(s) failed to render", len(resp.Errors))
+			}
+			return nil
+		},
+	})
+
 	return cmd
+}
+
+// completeFileNames provides shell completion of configured file names,
+// preferring the daemon's effective set and falling back to the global
+// config when the daemon is not running.
+func completeFileNames(
+	cmd *cobra.Command,
+	args []string,
+	toComplete string,
+) ([]string, cobra.ShellCompDirective) {
+	if resp, err := control.NewClient("").Status(); err == nil && len(resp.Files) > 0 {
+		return resp.Files, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return sortedFileNames(cfg.Files), cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeCacheKeys provides shell completion of cache entry keys from the
+// running daemon.
+func completeCacheKeys(
+	cmd *cobra.Command,
+	args []string,
+	toComplete string,
+) ([]string, cobra.ShellCompDirective) {
+	resp, err := control.NewClient("").CacheStats()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return slices.Sorted(maps.Keys(resp.Entries)), cobra.ShellCompDirectiveNoFileComp
 }

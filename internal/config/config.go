@@ -45,6 +45,14 @@ const (
 
 func (ct *CipherType) UnmarshalText(text []byte) error {
 	v := CipherType(text)
+	// Normalize accepted aliases to their canonical names so downstream
+	// comparisons (e.g. hot-reload cipher diffing) see a single spelling.
+	switch v {
+	case "age-ephemeral":
+		v = CipherEphemeral
+	case "keychain":
+		v = CipherKeyring
+	}
 	switch v {
 	case CipherAuto, CipherEphemeral, CipherKeyring, CipherKeyctl:
 		*ct = v
@@ -91,10 +99,97 @@ func (cm *ConflictMode) UnmarshalText(text []byte) error {
 }
 
 type Settings struct {
-	Mount              MountConfig   `toml:"mount"`
-	Cache              CacheConfig   `toml:"cache"`
-	Symlink            SymlinkConfig `toml:"symlink"`
-	ProjectConfigNames []string      `toml:"project_config_names"`
+	Mount              MountConfig          `toml:"mount"`
+	Cache              CacheConfig          `toml:"cache"`
+	Symlink            SymlinkConfig        `toml:"symlink"`
+	Audit              AuditConfig          `toml:"audit"`
+	Integrations       IntegrationsSettings `toml:"integrations"`
+	ProjectConfigNames []string             `toml:"project_config_names"`
+}
+
+// IntegrationsSettings configures secret-manager integrations exposed as
+// template functions (fnox, secretspec, op).
+type IntegrationsSettings struct {
+	Fnox        FnoxSettings        `toml:"fnox"`
+	SecretSpec  SecretSpecSettings  `toml:"secretspec"`
+	OnePassword OnePasswordSettings `toml:"onepassword"`
+}
+
+// FnoxSettings configures the fnox integration (https://fnox.jdx.dev).
+type FnoxSettings struct {
+	// Bin is the fnox binary to invoke. Default: "fnox".
+	Bin string `toml:"bin"`
+	// Profile selects a fnox profile (--profile). Empty uses fnox's default.
+	Profile string `toml:"profile"`
+}
+
+// SecretSpecSettings configures the secretspec integration
+// (https://secretspec.dev).
+type SecretSpecSettings struct {
+	// Bin is the secretspec binary to invoke. Default: "secretspec".
+	Bin string `toml:"bin"`
+	// Profile selects a secretspec profile (--profile). Empty uses the
+	// user's configured default.
+	Profile string `toml:"profile"`
+	// Provider selects a secretspec provider backend (--provider). Empty
+	// uses the user's configured default.
+	Provider string `toml:"provider"`
+}
+
+// OnePasswordAuthMode selects how the 1Password integration authenticates.
+type OnePasswordAuthMode string
+
+const (
+	// OPAuthAuto picks the best available method: a service account token
+	// if present, otherwise the desktop app via the SDK (CGO builds),
+	// otherwise the op CLI.
+	OPAuthAuto OnePasswordAuthMode = "auto"
+	// OPAuthDesktopApp authenticates in-process through the 1Password
+	// desktop app via the SDK (requires a CGO-enabled build and 'account').
+	OPAuthDesktopApp OnePasswordAuthMode = "desktop-app"
+	// OPAuthServiceAccount authenticates with a 1Password service account
+	// token via the SDK.
+	OPAuthServiceAccount OnePasswordAuthMode = "service-account"
+	// OPAuthCLI shells out to the op CLI, which itself can use the desktop
+	// app integration or a service account token.
+	OPAuthCLI OnePasswordAuthMode = "cli"
+)
+
+func (m *OnePasswordAuthMode) UnmarshalText(text []byte) error {
+	v := OnePasswordAuthMode(text)
+	switch v {
+	case "", OPAuthAuto, OPAuthDesktopApp, OPAuthServiceAccount, OPAuthCLI:
+		*m = v
+		return nil
+	default:
+		return fmt.Errorf(
+			"unsupported 1Password auth mode: %q (must be \"auto\", \"desktop-app\", \"service-account\", or \"cli\")",
+			text,
+		)
+	}
+}
+
+// OnePasswordSettings configures the 1Password integration.
+type OnePasswordSettings struct {
+	// Auth selects the authentication method. Default: "auto".
+	Auth OnePasswordAuthMode `toml:"auth"`
+	// Account is the 1Password account name or UUID (as shown in the
+	// desktop app sidebar) used for desktop-app authentication.
+	Account string `toml:"account"`
+	// Bin is the op CLI binary used for CLI-mode resolution. Default: "op".
+	Bin string `toml:"bin"`
+	// TokenEnv is the environment variable read for the service account
+	// token. Default: "OP_SERVICE_ACCOUNT_TOKEN".
+	TokenEnv string `toml:"token_env"`
+}
+
+// AuditConfig controls the secret read audit trail.
+type AuditConfig struct {
+	// Enabled turns on audit logging of secret file reads.
+	Enabled bool `toml:"enabled"`
+	// Log is the audit log file path. Empty means the default
+	// ($XDG_STATE_HOME/slinky/audit.log).
+	Log string `toml:"log"`
 }
 
 type Config struct {
@@ -130,6 +225,10 @@ type FileConfig struct {
 	Mode     uint32   `toml:"mode"`
 	TTL      Duration `toml:"ttl"`
 	Symlink  string   `toml:"symlink"`
+	// Delims overrides the template action delimiters for native render
+	// mode, e.g. ["<<", ">>"] for target formats that contain "{{".
+	// Must be empty or exactly two non-empty strings.
+	Delims []string `toml:"delims"`
 }
 
 func DefaultConfig() *Config {
@@ -237,8 +336,20 @@ func (fc *FileConfig) Validate(name string) error {
 		if fc.Command == "" {
 			return fmt.Errorf("file %q: command render mode requires 'command'", name)
 		}
+		if len(fc.Delims) > 0 {
+			return fmt.Errorf("file %q: 'delims' is only valid for native render mode", name)
+		}
 	default:
 		return fmt.Errorf("file %q: unsupported render mode: %q", name, fc.Render)
+	}
+
+	if len(fc.Delims) > 0 {
+		if len(fc.Delims) != 2 || fc.Delims[0] == "" || fc.Delims[1] == "" {
+			return fmt.Errorf(
+				"file %q: 'delims' must be exactly two non-empty strings, e.g. [\"<<\", \">>\"]",
+				name,
+			)
+		}
 	}
 
 	return nil

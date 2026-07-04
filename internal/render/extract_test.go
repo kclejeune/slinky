@@ -206,3 +206,51 @@ func TestFilterEnvMissingTemplateFallback(t *testing.T) {
 		t.Error("expected original env to be returned unchanged")
 	}
 }
+
+func TestExtractEnvVarsCustomDelims(t *testing.T) {
+	tmpDir := t.TempDir()
+	tplFile := filepath.Join(tmpDir, "test.tpl")
+	if err := os.WriteFile(
+		tplFile,
+		[]byte(`a=<< env "DELIM_VAR_A" >> b=<< envDefault "DELIM_VAR_B" "x" >>`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	vars := ExtractEnvVars("test", &config.FileConfig{
+		Template: tplFile,
+		Delims:   []string{"<<", ">>"},
+	})
+	if vars == nil {
+		t.Fatal("ExtractEnvVars() = nil, want var set")
+	}
+	if !vars["DELIM_VAR_A"] || !vars["DELIM_VAR_B"] {
+		t.Errorf("vars = %v, want DELIM_VAR_A and DELIM_VAR_B", vars)
+	}
+}
+
+func TestExtractProviderFuncs(t *testing.T) {
+	tmpDir := t.TempDir()
+	tplFile := filepath.Join(tmpDir, "test.tpl")
+	tpl := `a={{ fnox "A" }} b={{ op "op://v/i/f" }} c={{ env "PLAIN" }}`
+	if err := os.WriteFile(tplFile, []byte(tpl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	used := ExtractProviderFuncs("test", &config.FileConfig{Template: tplFile})
+	if used == nil {
+		t.Fatal("ExtractProviderFuncs() = nil")
+	}
+	if !used["fnox"] || !used["op"] {
+		t.Errorf("used = %v, want fnox and op", used)
+	}
+	if used["secretspec"] {
+		t.Errorf("secretspec should not be reported, got %v", used)
+	}
+
+	// Command-mode files return nil.
+	if got := ExtractProviderFuncs("cmd", &config.FileConfig{Render: "command", Command: "x"}); got != nil {
+		t.Errorf("command mode = %v, want nil", got)
+	}
+}

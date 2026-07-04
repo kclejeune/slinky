@@ -120,3 +120,35 @@ func TestComputeCacheKeyEnvOrder(t *testing.T) {
 		t.Error("env key order should not affect cache key (sorted)")
 	}
 }
+
+func TestComputeCacheKeyDelims(t *testing.T) {
+	tmpDir := t.TempDir()
+	tplFile := filepath.Join(tmpDir, "test.tpl")
+	if err := os.WriteFile(tplFile, []byte(`token=<< env "T" >>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	base := &config.FileConfig{Template: tplFile}
+	custom := &config.FileConfig{Template: tplFile, Delims: []string{"<<", ">>"}}
+	other := &config.FileConfig{Template: tplFile, Delims: []string{"[[", "]]"}}
+
+	k1, err := ComputeCacheKey("test", base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k2, err := ComputeCacheKey("test", custom, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k3, err := ComputeCacheKey("test", other, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if k1.String() == k2.String() {
+		t.Error("default and custom delims produced the same cache key")
+	}
+	if k2.String() == k3.String() {
+		t.Error("different custom delims produced the same cache key")
+	}
+}

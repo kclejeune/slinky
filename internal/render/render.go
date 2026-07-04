@@ -21,6 +21,7 @@ import (
 	"mvdan.cc/sh/v3/interp"
 
 	"github.com/kclejeune/slinky/internal/config"
+	"github.com/kclejeune/slinky/internal/secrets"
 )
 
 const Timeout = 10 * time.Second
@@ -29,11 +30,15 @@ const Timeout = 10 * time.Second
 type EnvLookup func(string) (string, bool)
 
 type TemplateRenderer interface {
+	// Render produces the file content. workDir is the directory
+	// render-time subprocesses run in (the contributing activation's
+	// directory for project files); empty means the process directory.
 	Render(
 		name string,
 		cfg *config.FileConfig,
 		envLookup EnvLookup,
 		envOverrides map[string]string,
+		workDir string,
 	) ([]byte, error)
 }
 
@@ -98,6 +103,7 @@ func (r *NativeRenderer) Render(
 	cfg *config.FileConfig,
 	envLookup EnvLookup,
 	envOverrides map[string]string,
+	workDir string,
 ) ([]byte, error) {
 	tplPath := config.ExpandPath(cfg.Template)
 	tplText, err := r.loadTemplate(tplPath)
@@ -105,12 +111,16 @@ func (r *NativeRenderer) Render(
 		return nil, err
 	}
 
-	funcMap, err := buildFuncMap(envLookup, envOverrides)
+	funcMap, err := buildFuncMap(envLookup, envOverrides, workDir)
 	if err != nil {
 		return nil, fmt.Errorf("building template functions: %w", err)
 	}
 
-	tmpl, err := template.New(name).Funcs(funcMap).Parse(tplText)
+	tmpl := template.New(name).Funcs(funcMap)
+	if len(cfg.Delims) == 2 {
+		tmpl = tmpl.Delims(cfg.Delims[0], cfg.Delims[1])
+	}
+	tmpl, err = tmpl.Parse(tplText)
 	if err != nil {
 		return nil, fmt.Errorf("parsing template %q: %w", tplPath, err)
 	}
@@ -123,7 +133,11 @@ func (r *NativeRenderer) Render(
 	return buf.Bytes(), nil
 }
 
-func buildFuncMap(envLookup EnvLookup, envOverrides map[string]string) (template.FuncMap, error) {
+func buildFuncMap(
+	envLookup EnvLookup,
+	envOverrides map[string]string,
+	workDir string,
+) (template.FuncMap, error) {
 	if envLookup == nil {
 		envLookup = os.LookupEnv
 	}
@@ -155,7 +169,23 @@ func buildFuncMap(envLookup EnvLookup, envOverrides map[string]string) (template
 		return fallback
 	}
 	funcMap["file"] = fileFunc
-	funcMap["exec"] = makeExecFunc(envOverrides)
+	funcMap["exec"] = makeExecFunc(envOverrides, workDir)
+
+	// Secret-manager integrations. Each resolves one reference at render
+	// time; results are cached (encrypted) with the file's TTL.
+	secretOpts := secrets.Options{WorkDir: workDir, Env: envOverrides}
+	funcMap["fnox"] = func(key string) (string, error) {
+		slog.Debug("template function: fnox", "key", key)
+		return secrets.FnoxGet(context.Background(), key, secretOpts)
+	}
+	funcMap["secretspec"] = func(key string) (string, error) {
+		slog.Debug("template function: secretspec", "key", key)
+		return secrets.SecretSpecGet(context.Background(), key, secretOpts)
+	}
+	funcMap["op"] = func(ref string) (string, error) {
+		slog.Debug("template function: op", "ref", ref)
+		return secrets.OnePasswordResolve(context.Background(), ref, secretOpts)
+	}
 
 	return funcMap, nil
 }
@@ -173,20 +203,25 @@ func fileFunc(path string) (string, error) {
 // makeExecFunc returns a template function that runs a command and returns
 // its stdout. envOverrides are merged into the process environment so that
 // commands invoked from templates see the activating shell's PATH and other
-// variables.
-func makeExecFunc(envOverrides map[string]string) func(string, ...string) (string, error) {
+// variables. workDir, when non-empty, is the command's working directory
+// (the contributing activation's project directory).
+func makeExecFunc(
+	envOverrides map[string]string,
+	workDir string,
+) func(string, ...string) (string, error) {
 	return func(name string, args ...string) (string, error) {
 		slog.Debug("template function: exec", "command", name, "args", args)
 		ctx, cancel := context.WithTimeout(context.Background(), Timeout)
 		defer cancel()
 
-		cmdPath, err := resolveCommand(name, envOverrides)
+		cmdPath, err := resolveCommand(name, envOverrides, workDir)
 		if err != nil {
 			return "", fmt.Errorf("exec %q: %w", name, err)
 		}
 
 		cmd := exec.CommandContext(ctx, cmdPath, args...)
 		cmd.Env = mergeEnv(os.Environ(), envOverrides)
+		cmd.Dir = workDir
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
@@ -211,6 +246,7 @@ func (r *CommandRenderer) Render(
 	cfg *config.FileConfig,
 	_ EnvLookup,
 	envOverrides map[string]string,
+	workDir string,
 ) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
 	defer cancel()
@@ -220,13 +256,14 @@ func (r *CommandRenderer) Render(
 		args[i] = config.ExpandPath(arg)
 	}
 
-	cmdPath, err := resolveCommand(cfg.Command, envOverrides)
+	cmdPath, err := resolveCommand(cfg.Command, envOverrides, workDir)
 	if err != nil {
 		return nil, fmt.Errorf("command %q: %w", cfg.Command, err)
 	}
 
 	cmd := exec.CommandContext(ctx, cmdPath, args...)
 	cmd.Env = mergeEnv(os.Environ(), envOverrides)
+	cmd.Dir = workDir
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -244,17 +281,20 @@ func (r *CommandRenderer) Render(
 	return stdout.Bytes(), nil
 }
 
-func resolveCommand(name string, envOverrides map[string]string) (string, error) {
+func resolveCommand(name string, envOverrides map[string]string, workDir string) (string, error) {
 	var env []string
 	if len(envOverrides) == 0 {
 		env = os.Environ()
 	} else {
 		env = mergeEnv(os.Environ(), envOverrides)
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		slog.Warn("resolveCommand: Getwd failed, falling back to /", "error", err)
-		cwd = "/"
+	cwd := workDir
+	if cwd == "" {
+		var err error
+		if cwd, err = os.Getwd(); err != nil {
+			slog.Warn("resolveCommand: Getwd failed, falling back to /", "error", err)
+			cwd = "/"
+		}
 	}
 	return interp.LookPathDir(cwd, expand.ListEnviron(env...), name)
 }

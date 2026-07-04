@@ -58,3 +58,16 @@ type CacheGetResponse struct {
 type CacheClearResponse struct {
 	OK bool `json:"ok"`
 }
+
+type ReloadResponse struct {
+	OK      bool   `json:"ok"`
+	Changed bool   `json:"changed"`
+	Error   string `json:"error,omitempty"`
+}
+
+type CacheWarmResponse struct {
+	OK     bool     `json:"ok"`
+	Warmed int      `json:"warmed"`
+	Errors []string `json:"errors,omitempty"`
+	Error  string   `json:"error,omitempty"`
+}

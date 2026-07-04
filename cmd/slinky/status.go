@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,8 +16,23 @@ import (
 	"github.com/kclejeune/slinky/internal/control"
 )
 
+// statusJSON is the machine-readable output of "slinky status --json".
+type statusJSON struct {
+	Running    bool                `json:"running"`
+	PID        int                 `json:"pid,omitempty"`
+	LogFile    string              `json:"log_file,omitempty"`
+	ManagedBy  string              `json:"managed_by,omitempty"`
+	ConfigHash string              `json:"config_hash,omitempty"`
+	ActiveDirs []string            `json:"active_dirs,omitempty"`
+	Files      []string            `json:"files,omitempty"`
+	Layers     map[string][]string `json:"layers,omitempty"`
+	Sessions   map[string][]int    `json:"sessions,omitempty"`
+}
+
 func statusCmd() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+
+	cmd := &cobra.Command{
 		Use:     "status",
 		Short:   "Show daemon status and active contexts",
 		GroupID: "daemon",
@@ -24,6 +40,11 @@ func statusCmd() *cobra.Command {
 			// Try the control socket first for richer info.
 			client := control.NewClient("")
 			resp, err := client.Status()
+
+			if asJSON {
+				return printStatusJSON(resp, err == nil)
+			}
+
 			if err == nil {
 				fmt.Printf("slinky is running\n")
 				printPID()
@@ -81,6 +102,47 @@ func statusCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "output status as JSON")
+	return cmd
+}
+
+// printStatusJSON writes machine-readable status to stdout. When the daemon
+// is not reachable over the control socket, only {"running": false} (plus
+// any PID-file evidence) is emitted.
+func printStatusJSON(resp *control.StatusResponse, socketOK bool) error {
+	out := statusJSON{}
+
+	if socketOK {
+		slices.Sort(resp.Files)
+		out = statusJSON{
+			Running:    true,
+			LogFile:    logFilePath(),
+			ManagedBy:  managedByLabel(),
+			ConfigHash: resp.ConfigHash,
+			ActiveDirs: resp.ActiveDirs,
+			Files:      resp.Files,
+			Layers:     resp.Layers,
+			Sessions:   resp.Sessions,
+		}
+		if pid, err := readPID(); err == nil {
+			out.PID = pid
+		}
+	} else if pid, err := readPID(); err == nil {
+		if proc, err := os.FindProcess(pid); err == nil {
+			if err := proc.Signal(unix.Signal(0)); err == nil {
+				// Process alive but socket unreachable (e.g. still starting).
+				out.Running = true
+				out.PID = pid
+				out.LogFile = logFilePath()
+				out.ManagedBy = managedByLabel()
+			}
+		}
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
 }
 
 // printPID reads the PID file and prints the daemon PID if available.

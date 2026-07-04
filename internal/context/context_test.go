@@ -1493,3 +1493,36 @@ func TestActivateAutoDeactivatePreservesOtherSessions(t *testing.T) {
 		t.Errorf("projA sessions = %v, want [3001]", pids)
 	}
 }
+
+func TestEffectiveFileDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	proj := filepath.Join(tmpDir, "proj")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tpl := filepath.Join(tmpDir, "a.tpl")
+	if err := os.WriteFile(tpl, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, DefaultProjectConfigNames[0]),
+		fmt.Appendf(nil, "[files.projfile]\ntemplate = %q\n", tpl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	globalCfg := &config.Config{Files: map[string]*config.FileConfig{
+		"globalfile": {Render: "native", Template: tpl},
+	}}
+	mgr := NewManager(globalCfg, DefaultProjectConfigNames, nil)
+
+	if _, err := mgr.Activate(proj, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	eff := mgr.Effective()
+	if got := eff["projfile"].Dir; got != proj {
+		t.Errorf("projfile Dir = %q, want %q", got, proj)
+	}
+	if got := eff["globalfile"].Dir; got != "" {
+		t.Errorf("globalfile Dir = %q, want empty", got)
+	}
+}

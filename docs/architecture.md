@@ -6,9 +6,57 @@ This document describes the internal architecture of `slinky`. For usage and con
 
 ## Overview
 
-![System architecture diagram](d2/overview.svg)
+```mermaid
+flowchart LR
+    subgraph client["Slinky Client Context"]
+        subgraph cfg["Config Context"]
+            global["Global Config"]
+            project["Project Config"]
+        end
+        subgraph providers["Secret Providers"]
+            fnox["mise + fnox"]
+            vault["vault"]
+            oprun["op run"]
+            sops["sops exec"]
+        end
+    end
 
-_Source: [d2/overview.d2](d2/overview.d2)_
+    wire["Daemon Protocol Message"]
+
+    subgraph daemon["Slinky Daemon"]
+        ctx["Context Manager"]
+        subgraph mount["Mount Backend"]
+            FUSE
+            tmpfs
+            FIFO
+        end
+        symlinks["Symlink Manager"]
+        subgraph resolver["Secret Resolver"]
+            cache["Encrypted Cache"]
+            renderer["Template Renderer"]
+            cache -->|cache miss| renderer
+        end
+        ctx -->|reconcile| symlinks
+        ctx -->|reconfigure| mount
+        mount -->|resolve| resolver
+        resolver -->|plaintext bytes| mount
+    end
+
+    subgraph links["Linked Files"]
+        netrc["~/.netrc"]
+        npmrc["~/.npmrc"]
+        dockercfg["~/.docker/config.json"]
+    end
+
+    app["Applications"]
+
+    providers -->|secret env variables| wire
+    cfg -->|file templates + target links| wire
+    wire -->|"activate: {dir, env, pid}"| ctx
+    symlinks -->|creates symlinks| links
+    links -->|OS follows symlink| mount
+    app -->|"read()"| links
+```
 
 `slinky` is a client–daemon system connected over a Unix socket. The daemon owns the mount point, context state, cache, and symlinks. CLI invocations (including shell hooks) communicate with it via a simple JSON-over-socket protocol.
 
@@ -19,6 +67,7 @@ _Source: [d2/overview.d2](d2/overview.d2)_
 ```
 cmd/slinky/          CLI entry point (cobra commands, service management)
 internal/
+  audit/             Append-only JSONL audit trail of secret reads
   cache/             Encrypted in-memory cache with TTL and background reaping
   cipher/            Cache cipher backends (age-ephemeral)
   config/            TOML config parsing, path expansion, validation
@@ -31,6 +80,7 @@ internal/
     fifo/            Named-pipe (FIFO) backend (no mount privileges required)
   render/            Template rendering (native + command), env var extraction
   resolver/          Secret resolution: cache lookup, render, async refresh
+  secrets/           Secret-manager integrations (fnox, secretspec, 1Password)
   symlink/           Symlink creation and reconciliation
   trust/             Project config trust store (allow/deny, SHA-256 hashes)
 ```
@@ -41,9 +91,33 @@ internal/
 
 ### File read path
 
-![File read path diagram](d2/read.svg)
+```mermaid
+sequenceDiagram
+    participant app as Application
+    participant mount as Mount Backend
+    participant resolver as SecretResolver
+    participant ctx as ContextManager
+    participant cache as Encrypted Cache
+    participant renderer as Template Renderer
 
-_Source: [d2/read.d2](d2/read.d2)_
+    app->>mount: read(~/.netrc)
+    mount->>resolver: Resolve(name)
+    resolver->>ctx: Effective(name)
+    ctx-->>resolver: FileConfig + env
+    resolver->>cache: Get(cacheKey)
+    alt fresh (age < TTL)
+        cache-->>resolver: decrypt → plaintext
+    else stale (TTL ≤ age < 2×TTL)
+        cache-->>resolver: stale plaintext
+        resolver->>resolver: spawn async re-render
+    else miss
+        resolver->>renderer: Render(template, env)
+        renderer-->>resolver: plaintext
+        resolver->>cache: Encrypt + Set(key, ct)
+    end
+    resolver-->>mount: plaintext bytes
+    mount-->>app: file content
+```
 
 ```
 App reads ~/.netrc
@@ -63,9 +137,36 @@ App reads ~/.netrc
 
 ### Activation path
 
-![Activation path diagram](d2/activation.svg)
+```mermaid
+sequenceDiagram
+    participant shell as Shell Hook
+    participant socket as Control Socket
+    participant ctx as ContextManager
+    participant trust as TrustStore
+    participant syml as Symlink Manager
+    participant mount as Mount Backend
 
-_Source: [d2/activation.d2](d2/activation.d2)_
+    shell->>shell: Getsid() → session PID
+    shell->>socket: activate {dir, env, pid}
+    socket->>ctx: Activate(dir, env, pid)
+    ctx->>ctx: auto-deactivate prev dirs for PID
+    ctx->>ctx: DiscoverLayers(dir → HOME)
+    ctx->>trust: ReadAndVerifyPaths(paths)
+    opt untrusted config
+        trust-->>ctx: ErrUntrusted
+        ctx-->>socket: error - run slinky allow
+        socket-->>shell: error
+    end
+    ctx->>ctx: merge layers + recompute()
+    opt conflict
+        ctx-->>socket: rollback + conflict error
+        socket-->>shell: error
+    end
+    ctx->>syml: Reconcile(effective)
+    ctx->>mount: Reconfigure(effective)
+    ctx-->>socket: file list
+    socket-->>shell: ok + file list
+```
 
 ```
 Shell hook: slinky activate --hook
@@ -158,6 +259,10 @@ The trust system prevents untrusted `.slinky.toml` files from executing arbitrar
 
 **`slinky deny [dir]`**: Removes the config(s) from the trust store. Subsequent activations from that directory will fail until re-approved.
 
+**`slinky trust list`**: Shows every entry in the trust store with its state — `current` (hash matches), `stale` (file changed since approval), or `missing` (file deleted).
+
+**`slinky trust prune`**: Removes entries whose config files no longer exist on disk.
+
 **Global config is always trusted**: The global config at `~/.config/slinky/config.toml` is in a user-controlled location and bypasses the trust check entirely.
 
 ### SecretResolver (`internal/resolver/`)
@@ -209,16 +314,23 @@ The `EnvLookup` function chain: activation's captured env map → `os.LookupEnv(
 
 JSON-over-Unix-socket protocol. One JSON object per line. Request payload is capped at 1 MB.
 
-**Requests**: `{type, dir?, env?, session?}`
+**Requests**: `{type, dir?, env?, session?, key?}`
 
 - `activate` — discover layers, capture env, add/update activation
 - `deactivate` — remove session from activation
-- `status` — return running state, active dirs, files, layers, sessions
+- `status` — return running state, config hash, active dirs, files, layers, sessions
+- `reload` — force a config reload from disk (same path as the file watcher and SIGHUP)
+- `cache_stats` — return cipher name and per-entry age/TTL/state
+- `cache_get` — decrypt and return a single cache entry
+- `cache_clear` — evict all cache entries
+- `cache_warm` — render every effective file into the cache
 
 **Responses**:
 
 - `ActivateResponse` / `DeactivateResponse`: `{ok, files, error}`
-- `StatusResponse`: `{running, active_dirs, files, layers, sessions}`
+- `StatusResponse`: `{running, config_hash, active_dirs, files, layers, sessions}`
+- `ReloadResponse`: `{ok, changed, error}`
+- `CacheStatsResponse` / `CacheGetResponse` / `CacheClearResponse` / `CacheWarmResponse`
 
 Socket path: `$XDG_STATE_HOME/slinky/ctl` (default: `~/.local/state/slinky/ctl`). The server removes a stale socket on startup and cleans up on shutdown.
 
@@ -232,18 +344,62 @@ Peer credential verification via `SO_PEERCRED` (Linux) or `LOCAL_PEERCRED` (macO
 - `envDefault "KEY" "fallback"` — env var with default
 - `file "path"` — read file contents (path expansion)
 - `exec "cmd" "args..."` — run command, capture stdout (10 s timeout)
+- `fnox "KEY"` / `secretspec "KEY"` / `op "op://..."` — secret-manager integrations (see below)
 
 **Command mode**: Execute external command, capture stdout. Args support path expansion.
+
+**Working directory**: `EffectiveFile.Dir` carries the activation directory of the layer that contributed each file. It is threaded through `Render(..., workDir)` so `exec`, command render mode, and the integration functions run in the file's own project directory — tools that discover config from the cwd (fnox.toml, secretspec.toml) resolve project-locally. Global files run in the daemon's cwd.
 
 **Env var extraction** (`extract.go`): Static AST walk identifies `env`/`envDefault` calls with string literal keys. Used by `FilterEnv()` to narrow captured env to only referenced variables, reducing cache key churn and limiting the env surface transmitted over IPC.
 
 **Template hot-reload**: A `render.Watcher` uses `fsnotify` to detect template file changes and invalidates the cache entry for affected files, so the next read picks up the new template without restarting the daemon.
 
+### Secret-manager integrations (`internal/secrets/`)
+
+Resolvers for fnox, secretspec, and 1Password, exposed to templates as the `fnox`, `secretspec`, and `op` functions. Active settings are process-global (`secrets.Configure`, mirroring `log/slog` and `audit`), installed at daemon start, on config reload, and by CLI render paths.
+
+- **fnox / secretspec**: shell out to their CLIs (`fnox get KEY`, `secretspec get KEY`) with configured profile/provider flags, running in the file's project directory with the activation env merged over the daemon env (so activation-time `PATH` finds mise-installed binaries even under launchd's minimal environment).
+- **1Password**: `planOPAuth` turns the configured mode into a concrete plan:
+  - `sdk-service-account` / `sdk-desktop-app` — in-process via the official Go SDK. Authenticated clients are cached per auth plan (construction runs a WASM core and, for desktop auth, a human authorization prompt); the cache is dropped on `Configure`. The SDK does not compile with `CGO_ENABLED=0` on macOS/Linux, so all SDK use lives behind `//go:build cgo || windows` with a pure-Go fallback file.
+  - `cli` — `op read <ref>`, which itself supports the desktop app session and service account tokens. This is the automatic fallback in pure-Go builds.
+- Provider calls have a generous 2-minute timeout to accommodate interactive authorization. Resolved values are never cached by this package — rendered file content is cached (encrypted, TTL'd) by the resolver as usual.
+
+`render.ExtractProviderFuncs` reports which integration functions a template references; `slinky doctor` uses it to check only the integrations actually in use (binary on PATH, viable 1Password auth plan).
+
 ### Encrypted cache (`internal/cache/`)
 
 In-memory map of `key → {ciphertext, timestamp, ttl}`. A background reaper removes expired entries (past 2× TTL) every 30 seconds.
 
-**`age-ephemeral`** (only cipher backend): Fresh X25519 keypair generated in daemon memory at startup. All cache entries are encrypted to this key. When the daemon exits, the private key is gone and the cache is irrecoverable. No external dependencies beyond `filippo.io/age`.
+All cipher backends encrypt cache entries to an age X25519 keypair; they differ in where the keypair lives:
+
+- **`ephemeral`** (default; alias `age-ephemeral`): Fresh keypair generated in daemon memory at startup. When the daemon exits, the private key is gone and the cache is irrecoverable.
+- **`keyring`** (alias `keychain`): Keypair persisted in the OS credential store (macOS Keychain, Linux Secret Service) via go-keyring.
+- **`keyctl`** (Linux only): Keypair persisted in the kernel user keyring via keyctl syscalls.
+- **`auto`**: Tries keyring, then keyctl, then falls back to ephemeral.
+
+The cipher can be hot-swapped on config reload (`SwapCipher`); existing entries are scrubbed and the cache starts empty under the new cipher.
+
+### Audit trail (`internal/audit/`)
+
+When `[settings.audit]` is enabled, the daemon appends one JSON object per served read to an audit log (default `$XDG_STATE_HOME/slinky/audit.log`, mode `0600`):
+
+```json
+{
+  "time": "...",
+  "event": "read",
+  "file": "netrc",
+  "backend": "fuse",
+  "pid": 1234,
+  "uid": 1000,
+  "process": "curl"
+}
+```
+
+- **FUSE** records a `read` event per `Open()`, with the caller's PID/UID from the kernel (`fuse.FromContext`) and the process name from `/proc/<pid>/comm` (or `ps` on macOS).
+- **FIFO** records a `serve` event per completed pipe write; pipe readers carry no peer identity (`pid`/`uid` are `-1`).
+- **tmpfs** reads happen entirely in the kernel and are not observable.
+
+The active recorder is process-global (mirroring `log/slog`): backends call `audit.Record` unconditionally, which is a single atomic load when auditing is disabled. Recorder writes never propagate errors into the read path. The recorder is hot-swapped by a reload rule when audit settings change. Only metadata is logged — never secret content.
 
 ### Symlink manager (`internal/symlink/`)
 
@@ -269,6 +425,7 @@ Creates symlinks from conventional paths (`~/.netrc`) to mounted files (`~/.secr
 | tmpfs refresh goroutine   | Single goroutine, serialized by event loop (ticker + reconfigCh)                                                            |
 | FIFO serve loops          | One goroutine per effective file; polls for readers with O_NONBLOCK; cancelled via child context on reconfigure or shutdown |
 | Reaper goroutine          | Single goroutine, 30-second tick                                                                                            |
+| Audit recorder (Mutex)    | Serializes audit log appends from concurrent read handlers; recorder pointer swapped atomically on config reload            |
 | Async cache refresh       | One goroutine per file, deduplicated by name                                                                                |
 
 Lock ordering: `activateMu` must be acquired before `mu`. The `onChange` callback is invoked outside both locks with a snapshot copy of the effective file map.

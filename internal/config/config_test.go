@@ -131,6 +131,96 @@ func TestBackendTypeUnmarshalText(t *testing.T) {
 	}
 }
 
+func TestCipherTypeUnmarshalText(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    CipherType
+		wantErr bool
+	}{
+		{"auto", CipherAuto, false},
+		{"ephemeral", CipherEphemeral, false},
+		{"keyring", CipherKeyring, false},
+		{"keyctl", CipherKeyctl, false},
+		// Documented aliases normalize to canonical names.
+		{"age-ephemeral", CipherEphemeral, false},
+		{"keychain", CipherKeyring, false},
+		{"invalid", "", true},
+	}
+
+	for _, tt := range tests {
+		var ct CipherType
+		err := ct.UnmarshalText([]byte(tt.input))
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("UnmarshalText(%q) expected error, got nil", tt.input)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("UnmarshalText(%q) error: %v", tt.input, err)
+			continue
+		}
+		if ct != tt.want {
+			t.Errorf("UnmarshalText(%q) = %q, want %q", tt.input, ct, tt.want)
+		}
+	}
+}
+
+func TestFileConfigValidateDelims(t *testing.T) {
+	tmpDir := t.TempDir()
+	tplFile := filepath.Join(tmpDir, "test.tpl")
+	if err := os.WriteFile(tplFile, []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		fc      FileConfig
+		wantErr bool
+	}{
+		{
+			"valid pair",
+			FileConfig{Render: "native", Template: tplFile, Delims: []string{"<<", ">>"}},
+			false,
+		},
+		{
+			"no delims",
+			FileConfig{Render: "native", Template: tplFile},
+			false,
+		},
+		{
+			"single delim",
+			FileConfig{Render: "native", Template: tplFile, Delims: []string{"<<"}},
+			true,
+		},
+		{
+			"three delims",
+			FileConfig{Render: "native", Template: tplFile, Delims: []string{"<", ">", "!"}},
+			true,
+		},
+		{
+			"empty delim",
+			FileConfig{Render: "native", Template: tplFile, Delims: []string{"<<", ""}},
+			true,
+		},
+		{
+			"delims in command mode",
+			FileConfig{Render: "command", Command: "echo", Delims: []string{"<<", ">>"}},
+			true,
+		},
+	}
+
+	for _, tt := range tests {
+		err := tt.fc.Validate("test")
+		if tt.wantErr && err == nil {
+			t.Errorf("%s: expected error, got nil", tt.name)
+		}
+		if !tt.wantErr && err != nil {
+			t.Errorf("%s: unexpected error: %v", tt.name, err)
+		}
+	}
+}
+
 func TestValidateInvalidCipher(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Settings.Cache.Cipher = CipherType("invalid")

@@ -107,3 +107,19 @@ func (c *Client) CacheClear() (*CacheClearResponse, error) {
 		Type:    "cache_clear",
 	})
 }
+
+// Reload asks the daemon to re-read its config file from disk.
+func (c *Client) Reload() (*ReloadResponse, error) {
+	return roundTrip[ReloadResponse](c.socketPath, Request{
+		Version: ProtocolVersion,
+		Type:    "reload",
+	})
+}
+
+// CacheWarm asks the daemon to render every effective file into the cache.
+func (c *Client) CacheWarm() (*CacheWarmResponse, error) {
+	return roundTrip[CacheWarmResponse](c.socketPath, Request{
+		Version: ProtocolVersion,
+		Type:    "cache_warm",
+	})
+}

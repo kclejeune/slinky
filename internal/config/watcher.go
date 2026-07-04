@@ -80,7 +80,13 @@ func (cw *ConfigWatcher) Run() {
 				debounce.Stop()
 			}
 			debounce = time.AfterFunc(500*time.Millisecond, func() {
-				cw.reload()
+				if _, err := cw.reload(); err != nil {
+					slog.Error(
+						"config reload failed, keeping current config",
+						"path", cw.path,
+						"error", err,
+					)
+				}
 			})
 
 		case err, ok := <-cw.watcher.Errors:
@@ -92,19 +98,21 @@ func (cw *ConfigWatcher) Run() {
 	}
 }
 
-func (cw *ConfigWatcher) ForceReload() {
-	cw.reload()
+// ForceReload re-reads the config file immediately, bypassing the file
+// watcher. It reports whether the config changed, and returns an error if
+// the file could not be loaded (the current config is kept in that case).
+func (cw *ConfigWatcher) ForceReload() (changed bool, err error) {
+	return cw.reload()
 }
 
 func (cw *ConfigWatcher) Close() error {
 	return cw.watcher.Close()
 }
 
-func (cw *ConfigWatcher) reload() {
+func (cw *ConfigWatcher) reload() (changed bool, err error) {
 	newCfg, err := Load(cw.path)
 	if err != nil {
-		slog.Error("config reload failed, keeping current config", "path", cw.path, "error", err)
-		return
+		return false, err
 	}
 
 	cw.mu.Lock()
@@ -113,7 +121,7 @@ func (cw *ConfigWatcher) reload() {
 	if !diff.HasChanges() {
 		cw.mu.Unlock()
 		slog.Debug("config file changed on disk but content is identical")
-		return
+		return false, nil
 	}
 	cw.current = newCfg
 	cw.mu.Unlock()
@@ -127,4 +135,5 @@ func (cw *ConfigWatcher) reload() {
 	if cw.onReload != nil {
 		cw.onReload(old, newCfg, diff)
 	}
+	return true, nil
 }

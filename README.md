@@ -18,11 +18,11 @@ Many developer tools expect secrets in well-known dotfiles: `~/.netrc` for git/c
 
 `slinky` generalizes this model to arbitrary file templates. It runs as a lightweight daemon that exposes virtual files at stable paths. When a process reads one of these files, `slinky` renders the backing template using Go's `text/template` with values from environment variables and never writes plaintext to persistent storage. Rendered output is cached in encrypted memory with a configurable TTL so subsequent reads are fast.
 
-Notably, `slinky` does not resolve secrets itself. It reads environment variables that your existing tools have already populated. This keeps it focused on one job — file materialization — and avoids duplicating the secret resolution logic that fnox, 1Password CLI, and similar tools already handle well.
+Notably, `slinky` stores no secrets itself. Values come from environment variables that your existing tools have already populated, or — via first-class [integrations](#integration-with-existing-tools) — are pulled at render time from [fnox](https://fnox.jdx.dev), [secretspec](https://secretspec.dev), or 1Password (including desktop-app authenticated sessions). Either way, storage and authentication stay with the tools that already handle them well; slinky stays focused on one job — file materialization.
 
 ## Quickstart
 
-1. **Install** — build from source with `go install github.com/kclejeune/slinky/cmd/slinky@latest`, or use `nix build .#slinky`.
+1. **Install** — build from source with `go install github.com/kclejeune/slinky/cmd/slinky@latest`, or download a release archive from the [releases page](https://github.com/kclejeune/slinky/releases).
 
 2. **Create a global config** using `slinky cfg init --global`, then edit it:
 
@@ -73,7 +73,7 @@ Notably, `slinky` does not resolve secrets itself. It reads environment variable
    Or start it manually for a one-off session:
 
    ```bash
-   slinky start -d
+   slinky start
    ```
 
 6. **Verify**:
@@ -194,18 +194,71 @@ mount_point = "~/.secrets.d"
 # ─── Cache settings ────────────────────────────────────────────
 
 [settings.cache]
-# Encryption backend for cached rendered templates.
-# Currently only "age-ephemeral" is supported: an age X25519 keypair is
-# generated in memory at startup. The cache is irrecoverable after daemon
-# exit.
-# Default: "age-ephemeral"
-cipher = "age-ephemeral"
+# Encryption backend for cached rendered templates. Cache entries are
+# encrypted with an age X25519 keypair; the cipher determines where that
+# keypair lives:
+#
+# ephemeral: (default) Keypair generated in memory at startup; the cache
+#            is irrecoverable after daemon exit. ("age-ephemeral" is an
+#            accepted alias.)
+# keyring:   Keypair persisted in the OS credential store (macOS Keychain,
+#            Linux Secret Service). "keychain" is an accepted alias.
+# keyctl:    Keypair persisted in the Linux kernel user keyring (Linux only).
+# auto:      Try keyring, then keyctl, then fall back to ephemeral.
+#
+# Default: "ephemeral"
+cipher = "ephemeral"
 
 # Default TTL for cached rendered output. After this duration the next
 # read triggers a background re-render; stale content is served in the
 # meantime so reads never block.
 # Default: "5m"
 default_ttl = "5m"
+
+
+# ─── Audit settings ────────────────────────────────────────────
+
+[settings.audit]
+# Record every secret read served by the daemon to an append-only
+# JSONL audit log. The FUSE backend records the calling process
+# (PID, UID, process name); FIFO readers are anonymous. Reads of
+# tmpfs-backed files happen entirely in the kernel and cannot be
+# observed. View with `slinky audit`.
+# Default: false
+enabled = false
+
+# Audit log path.
+# Default: "~/.local/state/slinky/audit.log"
+# log = "~/.local/state/slinky/audit.log"
+
+
+# ─── Secret-manager integrations ───────────────────────────────
+# Available in templates as {{ fnox "KEY" }}, {{ secretspec "KEY" }},
+# and {{ op "op://vault/item/field" }}. All settings are optional —
+# the functions work with each tool's own defaults.
+
+[settings.integrations.fnox]
+# bin = "fnox"            # binary to invoke
+# profile = "production"  # fnox --profile for all lookups
+
+[settings.integrations.secretspec]
+# bin = "secretspec"
+# profile = "development" # secretspec --profile
+# provider = "keyring"    # secretspec --provider
+
+[settings.integrations.onepassword]
+# How to authenticate:
+#   auto:            (default) service account token if present, else
+#                    desktop app via the SDK (CGO builds), else op CLI
+#   desktop-app:     1Password desktop app via the official Go SDK;
+#                    requires 'account' and a CGO-enabled build
+#   service-account: SDK with a service account token
+#   cli:             op CLI (works with the CLI's own desktop app
+#                    integration or op signin)
+# auth = "auto"
+# account = "my.1password.com"           # desktop-app account name
+# token_env = "OP_SERVICE_ACCOUNT_TOKEN" # env var holding the token
+# bin = "op"                             # CLI binary for cli mode
 
 
 # ─── Symlink settings ──────────────────────────────────────────
@@ -257,6 +310,13 @@ template = "~/.config/slinky/templates/docker-config.tpl"
 mode = 0o600
 ttl = "10m"
 symlink = "~/.docker/config.json"
+
+# For target formats that themselves contain "{{" (Helm values,
+# Prometheus configs, ...), override the template action delimiters:
+#
+# [files."helm-values.yaml"]
+# template = "~/.config/slinky/templates/helm-values.tpl"
+# delims = ["<<", ">>"]        # then write << env "TOKEN" >> in the template
 
 
 # ─── Command render mode ───────────────────────────────────────
@@ -340,6 +400,8 @@ Native mode uses Go's [`text/template`](https://pkg.go.dev/text/template) with a
 
 When using directory-scoped contexts, `env()` and `envDefault()` first check the per-context environment captured at activation time, then fall back to `os.LookupEnv`. This means the same template renders different content in different directories based on what env vars each directory's hook provides.
 
+If the target format itself contains `{{` (Helm values files, Prometheus configs, other Go templates), set `delims = ["<<", ">>"]` on the file definition and write template actions with those delimiters instead — everything else, including literal `{{`, passes through untouched.
+
 #### Built-in template functions
 
 **`env`** — Required environment variable. Returns an error during rendering if unset.
@@ -360,10 +422,28 @@ When using directory-scoped contexts, `env()` and `envDefault()` first check the
 {{ file "~/.config/git/username" | trimSpace }}
 ```
 
-**`exec`** — Run a command and return its stdout (10 s timeout). Use sparingly — if most values come from `exec`, consider command render mode instead.
+**`exec`** — Run a command and return its stdout (10 s timeout). Runs in the file's project directory for project-scoped files. Use sparingly — if most values come from `exec`, consider command render mode instead.
 
 ```
-{{ exec "op" "read" "op://Private/GitHub PAT/credential" }}
+{{ exec "date" "+%Y-%m-%d" }}
+```
+
+**`fnox`** — Resolve a secret from [fnox](https://fnox.jdx.dev) (see [Integrations](#integration-with-existing-tools)).
+
+```
+{{ fnox "DATABASE_URL" }}
+```
+
+**`secretspec`** — Resolve a declared secret via [secretspec](https://secretspec.dev).
+
+```
+{{ secretspec "NPM_TOKEN" }}
+```
+
+**`op`** — Resolve a 1Password [secret reference](https://developer.1password.com/docs/cli/secret-references/) via the SDK (desktop app or service account) or the op CLI.
+
+```
+{{ op "op://Private/GitHub PAT/credential" }}
 ```
 
 All [sprout functions](https://docs.atom.codes/sprout) are available: `b64enc`, `b64dec`, `upper`, `lower`, `trimSpace`, `replace`, `join`, `list`, `default`, `ternary`, `toJson`, and many more.
@@ -411,7 +491,7 @@ machine {{ envDefault "REGISTRY_HOST" "registry.example.com" }}
 
 ### Command mode
 
-Command mode delegates rendering entirely to an external process. The command's stdout becomes the file content.
+Command mode delegates rendering entirely to an external process. The command's stdout becomes the file content. For project-scoped files the command runs in the file's project directory, so tools that discover their config from the working directory behave as if you ran them in the project yourself.
 
 Use this when:
 
@@ -491,11 +571,12 @@ The FIFO backend creates named pipes at the mount point — one per file. When a
 - Tracks sessions by process group, with additive multi-project activation, auto-deactivation on directory change, and background reaping of dead shell processes
 - Caches rendered output encrypted in memory with a configurable TTL; serves stale content while refreshing in the background; scrubs plaintext on file handle close and cache expiry
 - Manages symlinks from conventional paths (`~/.netrc`) to the virtual mount point
+- Optionally records an audit trail of every secret read the daemon serves, including the calling process identity on FUSE
 - Installs as a launchd agent (macOS) or systemd user service (Linux); runs as your user, no root required (except tmpfs mount on Linux)
 
 ### What slinky does not do
 
-- **It is not a secrets vault or resolver.** It does not talk to 1Password, age, sops, or any secret provider directly. It reads environment variables. Use fnox, mise, op run, direnv, etc. to populate those variables first.
+- **It is not a secrets vault.** It stores no secrets of its own and has no unlock passphrase. Values come from environment variables or, via the [integrations](#integration-with-existing-tools), are pulled at render time from the managers that do own them (fnox, secretspec, 1Password) — authentication and storage stay entirely with those tools.
 - **It is not a process isolation tool.** Any process running as your user can read the mounted files. It protects against secrets at rest on disk, not against malicious processes with your UID.
 - **It does not manage environment variables.** Use `fnox`, `op run`, `direnv`, or `mise` for env var injection. `slinky` consumes those variables to produce _files_.
 
@@ -511,6 +592,10 @@ slinky allow
 
 # Revoke trust
 slinky deny
+
+# Audit the trust store
+slinky trust list    # show each entry as current, stale, or missing
+slinky trust prune   # drop entries whose config files no longer exist
 ```
 
 The SHA-256 hash of each config file is stored in `~/.local/state/slinky/trusted.json`. If a config file changes (e.g. after a `git pull`), re-approval is required. This is the same model used by [direnv](https://direnv.net/).
@@ -523,9 +608,11 @@ The SHA-256 hash of each config file is stored in `~/.local/state/slinky/trusted
 
 **The control socket is restricted to same-UID processes.** The socket directory is created with mode `0700`, and each connection is verified via OS-level peer credentials (`SO_PEERCRED` on Linux, `LOCAL_PEERCRED` on macOS).
 
-**Environment variables are filtered before transmission.** On `activate`, the CLI walks the template AST to identify referenced variable names and only transmits those values plus a small allowlist (`HOME`, `USER`, `PATH`). The daemon caps env entries per request at 256.
+**Environment variables are filtered before transmission.** On `activate`, the CLI walks the template AST to identify referenced variable names and only transmits those values plus a small allowlist of shell basics (`HOME`, `USER`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `LANG`) and `XDG_*` variables. The daemon caps env entries per request at 256.
 
-**Secrets are stored only in encrypted memory.** Rendered output is encrypted with an ephemeral age X25519 keypair and cached in-process. Entries are never written to persistent storage. On daemon exit the private key is gone and the cache is irrecoverable.
+**Reads can be audited.** Slinky cannot prevent a same-UID process from reading mounted files, but it can make reads observable. With `[settings.audit] enabled = true`, every read served by the daemon is appended to a JSONL audit log (`~/.local/state/slinky/audit.log` by default, mode `0600`). The FUSE backend records the calling PID, UID, and process name for each open; the FIFO backend records that content was served (pipe readers are anonymous). Reads of tmpfs-backed files happen entirely in the kernel and are not observable. View the trail with `slinky audit` (`-f` to follow, `--json` for raw lines). The audit log records _who read what and when_ — never secret content.
+
+**Secrets are stored only in encrypted memory.** Rendered output is encrypted with an age X25519 keypair and cached in-process. Entries are never written to persistent storage. With the default `ephemeral` cipher the private key exists only in daemon memory, so on daemon exit the key is gone and the cache is irrecoverable. The `keyring` and `keyctl` ciphers persist the keypair in the OS credential store or kernel keyring instead — the cache itself still never touches disk.
 
 **Cleanup on deactivation.** When a context is deactivated or the reaper removes a dead session, files are zero-overwritten (tmpfs) and symlinks are removed.
 
@@ -533,23 +620,113 @@ The SHA-256 hash of each config file is stored in `~/.local/state/slinky/trusted
 
 ## Integration with existing tools
 
-`slinky` is a file materialization layer that sits downstream of your secrets management toolchain.
+`slinky` is a file materialization layer that sits downstream of your secrets management toolchain. Secrets reach templates two ways:
 
-![Tool integration diagram](docs/d2/integration.svg)
+1. **Via environment variables** — any env-injection tool (mise, direnv, `op run`, `fnox exec`) populates the shell; `slinky activate` captures it; templates read `{{ env "KEY" }}`.
+2. **Via first-class integrations** — templates pull directly from [fnox](https://fnox.jdx.dev), [secretspec](https://secretspec.dev), or 1Password at render time with the `fnox`, `secretspec`, and `op` template functions. No shell plumbing required, and values are only resolved when a file is actually rendered.
 
-### fnox + mise
+```mermaid
+flowchart LR
+    subgraph inject["Secret Providers"]
+        direction TB
+        fnox["mise + fnox"]
+        vault["vault"]
+        oprun["op run"]
+        sops["sops exec"]
+    end
 
-fnox manages secrets across providers (age, 1Password) and mise injects them into your shell environment. Combined with the `hooks.cd` pattern above, secrets flow automatically to `slinky` templates via `{{ env "KEY" }}`.
+    subgraph slinky["Slinky"]
+        direction TB
+        render["template rendering"] --> cache["encrypted cache"] --> mount["FUSE / tmpfs / FIFO secret mount"]
+    end
 
-### 1Password CLI
+    subgraph files["Linked Secrets"]
+        direction TB
+        netrc["~/.netrc"]
+        npmrc["~/.npmrc"]
+        dockercfg["~/.docker/config.json"]
+    end
 
-**Via environment (native mode):** Use `op run` to inject 1Password secrets as env vars, then activate:
+    subgraph tools["Secret Consumers"]
+        direction TB
+        git["git"]
+        npm["npm"]
+        docker["docker"]
+        kubectl["kubectl"]
+    end
 
-```bash
-op run --env-file=.env -- slinky activate
+    inject -->|"env vars (per-directory context)"| slinky
+    slinky -->|virtual files via symlinks| files
+    files -->|standard file reads| tools
 ```
 
-**Direct rendering (command mode):** Use `op inject` directly with its own template syntax:
+Integration lookups run in the project directory of the file's activation, so fnox and secretspec discover the project's own `fnox.toml` / `secretspec.toml`. Resolved values inherit the file's encrypted cache and TTL — providers are consulted once per render, not once per read. `slinky doctor` verifies that every integration your templates reference is installed and authenticable.
+
+### fnox
+
+[fnox](https://fnox.jdx.dev) stores secrets encrypted in git or as references to cloud providers. Two ways to combine it with slinky:
+
+**Direct (template function):** Pull values straight from the project's `fnox.toml` — works even when no shell hook has run:
+
+```
+machine github.com
+  login {{ fnox "GITHUB_USERNAME" }}
+  password {{ fnox "GITHUB_TOKEN" }}
+```
+
+```toml
+# Optional: pin a profile for all fnox lookups
+[settings.integrations.fnox]
+profile = "production"
+```
+
+**Via environment:** `eval "$(fnox activate bash)"` loads secrets into your shell on `cd`; slinky's own hook captures them for `{{ env "KEY" }}` templates. Use this when many tools consume the same env vars.
+
+### secretspec
+
+[secretspec](https://secretspec.dev) declares _what_ secrets a project needs in a committed `secretspec.toml` while values live in a provider (keyring, 1Password, dotenv, ...). The `secretspec` template function resolves declared keys through the user's configured provider:
+
+```
+//registry.npmjs.org/:_authToken={{ secretspec "NPM_TOKEN" }}
+```
+
+```toml
+# Optional: pin profile/provider instead of the user-level defaults
+[settings.integrations.secretspec]
+profile = "development"
+provider = "keyring"
+```
+
+Because slinky runs `secretspec` in the project directory, each project resolves against its own declarations — and `secretspec check` remains the source of truth for what's required.
+
+### 1Password
+
+The `op` template function resolves [secret reference URIs](https://developer.1password.com/docs/cli/secret-references/):
+
+```
+machine github.com
+  login {{ op "op://Private/GitHub/username" }}
+  password {{ op "op://Private/GitHub/token" }}
+```
+
+Authentication (`settings.integrations.onepassword.auth`):
+
+- **`auto`** (default) — a service account token (`OP_SERVICE_ACCOUNT_TOKEN`, from the daemon env or captured at activation) is used if present; otherwise the desktop app via the SDK when available; otherwise the `op` CLI.
+- **`desktop-app`** — in-process via the official [1Password Go SDK](https://github.com/1Password/onepassword-sdk-go), authorized by the 1Password **desktop app**: no tokens on disk, human-in-the-loop approval, and automatic re-auth after the app locks/unlocks. Setup:
+  1. In the 1Password app: **Settings → Developer → Integrate with other apps** (under "Integrate with the 1Password SDKs").
+  2. Configure your account name as shown in the app's sidebar:
+     ```toml
+     [settings.integrations.onepassword]
+     auth = "desktop-app"
+     account = "my.1password.com"
+     ```
+  3. The first resolution triggers an authorization prompt in the 1Password app.
+- **`service-account`** — in-process via the SDK using a [service account](https://developer.1password.com/docs/service-accounts/) token. Set `token_env` to read a different variable than `OP_SERVICE_ACCOUNT_TOKEN`.
+- **`cli`** — shell out to `op read`. The CLI has its own desktop-app integration (**Settings → Developer → Integrate with 1Password CLI**), so biometric-backed desktop sessions work here too.
+
+> **Build note:** the SDK's desktop-app integration requires a CGO-enabled build on macOS/Linux. `go install github.com/kclejeune/slinky/cmd/slinky@latest` on a machine with a C toolchain (any macOS with Xcode CLT) includes it. The prebuilt release archives are pure-Go: on those, `auto` transparently uses the `op` CLI — which still authenticates through the desktop app session. `slinky doctor` reports which path is active.
+
+**Command render mode** remains available if you prefer `op inject` with its own template syntax:
 
 ```toml
 [files.netrc]
@@ -564,7 +741,57 @@ Any tool that populates environment variables works. Start the daemon once, call
 
 ## Architecture
 
-![System architecture diagram](docs/d2/overview.svg)
+```mermaid
+flowchart LR
+    subgraph client["Slinky Client Context"]
+        subgraph cfg["Config Context"]
+            global["Global Config"]
+            project["Project Config"]
+        end
+        subgraph providers["Secret Providers"]
+            fnox["mise + fnox"]
+            vault["vault"]
+            oprun["op run"]
+            sops["sops exec"]
+        end
+    end
+
+    wire["Daemon Protocol Message"]
+
+    subgraph daemon["Slinky Daemon"]
+        ctx["Context Manager"]
+        subgraph mount["Mount Backend"]
+            FUSE
+            tmpfs
+            FIFO
+        end
+        symlinks["Symlink Manager"]
+        subgraph resolver["Secret Resolver"]
+            cache["Encrypted Cache"]
+            renderer["Template Renderer"]
+            cache -->|cache miss| renderer
+        end
+        ctx -->|reconcile| symlinks
+        ctx -->|reconfigure| mount
+        mount -->|resolve| resolver
+        resolver -->|plaintext bytes| mount
+    end
+
+    subgraph links["Linked Files"]
+        netrc["~/.netrc"]
+        npmrc["~/.npmrc"]
+        dockercfg["~/.docker/config.json"]
+    end
+
+    app["Applications"]
+
+    providers -->|secret env variables| wire
+    cfg -->|file templates + target links| wire
+    wire -->|"activate: {dir, env, pid}"| ctx
+    symlinks -->|creates symlinks| links
+    links -->|OS follows symlink| mount
+    app -->|"read()"| links
+```
 
 For internal details — package structure, data flow sequence diagrams, concurrency model, and component descriptions — see [docs/architecture.md](docs/architecture.md).
 
@@ -577,7 +804,9 @@ slinky start -m tmpfs         # Start with a specific backend (overrides config)
 slinky run                    # Run daemon in the foreground (alias)
 slinky stop                   # Stop daemon, unmount, clean up symlinks
 slinky restart                # Restart the running daemon
+slinky reload                 # Ask the running daemon to reload its config
 slinky status                 # Show daemon status, active dirs, sessions, files
+slinky status --json          # Machine-readable status output
 slinky log                    # Show daemon log output
 slinky log -f                 # Follow (tail) daemon log output
 
@@ -585,9 +814,13 @@ slinky activate [dir]         # Activate a directory context (default: $PWD)
 slinky activate --hook        # Shell hook mode: suppress output, warn on failure
 slinky deactivate [dir]       # Deactivate a directory context (default: $PWD)
 slinky deactivate --session 0 # Force-remove regardless of other sessions
+slinky deactivate --all       # Force-remove every active context
+slinky exec -- cmd [args...]  # Run a command with a context active, then clean up
 
 slinky allow [dir]            # Trust the project config in a directory
 slinky deny [dir]             # Revoke trust for the project config in a directory
+slinky trust list             # List trusted configs (current/stale/missing)
+slinky trust prune            # Drop trust entries whose files no longer exist
 
 slinky cfg [dir]              # Show resolved config hierarchy for a directory
 slinky cfg init               # Create a project config (.slinky.toml) here
@@ -600,9 +833,14 @@ slinky cfg hook [bash|zsh|fish]  # Print shell hook code for eval integration
 slinky render <name>          # Debug: render a single file to stdout without caching
 
 slinky cache clear            # Evict all cached entries
+slinky cache warm             # Pre-render all effective files into the cache
 slinky cache stats            # Show cache hit/miss rates and entry ages
 slinky cache list             # List cached entry keys
 slinky cache get <key>        # Decrypt and print a cached entry
+
+slinky audit                  # Show the secret read audit trail
+slinky audit -f               # Follow the audit trail live
+slinky audit -n 20 --json     # Last 20 entries as raw JSON
 
 slinky doctor                 # Diagnose common configuration and runtime issues
 
@@ -646,6 +884,22 @@ Removes a previously activated directory context. Its contributed files are remo
 
 With session tracking, deactivating removes only the current session's reference. If other sessions still hold the activation, it remains active. Full removal happens when all sessions have deactivated or exited.
 
+### `slinky exec`
+
+Runs a single command with a directory context activated, then deactivates it — no shell hooks required. The context is activated with the calling environment, the command inherits stdio and gets its exit code propagated, and only this invocation's session reference is added and removed (concurrent shells holding the same activation are unaffected).
+
+```bash
+# Push with this project's registry credentials materialized
+slinky exec -- docker push ghcr.io/me/image
+
+# Combine with an env injector for fully one-shot secret flow
+op run --env-file=.env -- slinky exec -- npm publish
+```
+
+**Flags:**
+
+- `--dir <directory>` — Activate a different directory's context (default: `$PWD`).
+
 ### `slinky cfg hook`
 
 Generates shell hook code to `eval` (bash/zsh) or `source` (fish) in your shell's startup file. With no argument, `slinky cfg hook` auto-detects your shell from the parent process.
@@ -668,4 +922,4 @@ slinky svc uninstall  # stop + remove
 
 When running as a service the daemon starts with a minimal process environment. This is fine — environment variables needed by templates are provided by shell hooks at activation time: `slinky activate` captures the calling shell's full environment and forwards it to the daemon automatically.
 
-For a quick one-off session without installing a service, `slinky start -d` starts the daemon in the background directly. It will not restart on login or after a crash.
+For a quick one-off session without installing a service, `slinky start` starts the daemon in the background directly. It will not restart on login or after a crash.
