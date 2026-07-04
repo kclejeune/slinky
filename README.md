@@ -610,7 +610,7 @@ The SHA-256 hash of each config file is stored in `~/.local/state/slinky/trusted
 
 **Environment variables are filtered before transmission.** On `activate`, the CLI walks the template AST to identify referenced variable names and only transmits those values plus a small allowlist of shell basics (`HOME`, `USER`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `LANG`) and `XDG_*` variables. The daemon caps env entries per request at 256.
 
-**Reads can be audited.** Slinky cannot prevent a same-UID process from reading mounted files, but it can make reads observable. With `[settings.audit] enabled = true`, every read served by the daemon is appended to a JSONL audit log (`~/.local/state/slinky/audit.log` by default, mode `0600`). The FUSE backend records the calling PID, UID, and process name for each open; the FIFO backend records that content was served (pipe readers are anonymous). Reads of tmpfs-backed files happen entirely in the kernel and are not observable. View the trail with `slinky audit` (`-f` to follow, `--json` for raw lines). The audit log records *who read what and when* — never secret content.
+**Reads can be audited.** Slinky cannot prevent a same-UID process from reading mounted files, but it can make reads observable. With `[settings.audit] enabled = true`, every read served by the daemon is appended to a JSONL audit log (`~/.local/state/slinky/audit.log` by default, mode `0600`). The FUSE backend records the calling PID, UID, and process name for each open; the FIFO backend records that content was served (pipe readers are anonymous). Reads of tmpfs-backed files happen entirely in the kernel and are not observable. View the trail with `slinky audit` (`-f` to follow, `--json` for raw lines). The audit log records _who read what and when_ — never secret content.
 
 **Secrets are stored only in encrypted memory.** Rendered output is encrypted with an age X25519 keypair and cached in-process. Entries are never written to persistent storage. With the default `ephemeral` cipher the private key exists only in daemon memory, so on daemon exit the key is gone and the cache is irrecoverable. The `keyring` and `keyctl` ciphers persist the keypair in the OS credential store or kernel keyring instead — the cache itself still never touches disk.
 
@@ -651,7 +651,7 @@ profile = "production"
 
 ### secretspec
 
-[secretspec](https://secretspec.dev) declares *what* secrets a project needs in a committed `secretspec.toml` while values live in a provider (keyring, 1Password, dotenv, ...). The `secretspec` template function resolves declared keys through the user's configured provider:
+[secretspec](https://secretspec.dev) declares _what_ secrets a project needs in a committed `secretspec.toml` while values live in a provider (keyring, 1Password, dotenv, ...). The `secretspec` template function resolves declared keys through the user's configured provider:
 
 ```
 //registry.npmjs.org/:_authToken={{ secretspec "NPM_TOKEN" }}

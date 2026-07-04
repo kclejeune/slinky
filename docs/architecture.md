@@ -285,7 +285,15 @@ The cipher can be hot-swapped on config reload (`SwapCipher`); existing entries 
 When `[settings.audit]` is enabled, the daemon appends one JSON object per served read to an audit log (default `$XDG_STATE_HOME/slinky/audit.log`, mode `0600`):
 
 ```json
-{"time":"...","event":"read","file":"netrc","backend":"fuse","pid":1234,"uid":1000,"process":"curl"}
+{
+  "time": "...",
+  "event": "read",
+  "file": "netrc",
+  "backend": "fuse",
+  "pid": 1234,
+  "uid": 1000,
+  "process": "curl"
+}
 ```
 
 - **FUSE** records a `read` event per `Open()`, with the caller's PID/UID from the kernel (`fuse.FromContext`) and the process name from `/proc/<pid>/comm` (or `ps` on macOS).
