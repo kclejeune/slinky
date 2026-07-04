@@ -216,6 +216,22 @@ cipher = "ephemeral"
 default_ttl = "5m"
 
 
+# ─── Audit settings ────────────────────────────────────────────
+
+[settings.audit]
+# Record every secret read served by the daemon to an append-only
+# JSONL audit log. The FUSE backend records the calling process
+# (PID, UID, process name); FIFO readers are anonymous. Reads of
+# tmpfs-backed files happen entirely in the kernel and cannot be
+# observed. View with `slinky audit`.
+# Default: false
+enabled = false
+
+# Audit log path.
+# Default: "~/.local/state/slinky/audit.log"
+# log = "~/.local/state/slinky/audit.log"
+
+
 # ─── Symlink settings ──────────────────────────────────────────
 
 [settings.symlink]
@@ -265,6 +281,13 @@ template = "~/.config/slinky/templates/docker-config.tpl"
 mode = 0o600
 ttl = "10m"
 symlink = "~/.docker/config.json"
+
+# For target formats that themselves contain "{{" (Helm values,
+# Prometheus configs, ...), override the template action delimiters:
+#
+# [files."helm-values.yaml"]
+# template = "~/.config/slinky/templates/helm-values.tpl"
+# delims = ["<<", ">>"]        # then write << env "TOKEN" >> in the template
 
 
 # ─── Command render mode ───────────────────────────────────────
@@ -347,6 +370,8 @@ slinky deactivate ~/work/org-a
 Native mode uses Go's [`text/template`](https://pkg.go.dev/text/template) with all [sprout](https://github.com/go-sprout/sprout) functions available, plus a small set of slinky-specific builtins.
 
 When using directory-scoped contexts, `env()` and `envDefault()` first check the per-context environment captured at activation time, then fall back to `os.LookupEnv`. This means the same template renders different content in different directories based on what env vars each directory's hook provides.
+
+If the target format itself contains `{{` (Helm values files, Prometheus configs, other Go templates), set `delims = ["<<", ">>"]` on the file definition and write template actions with those delimiters instead — everything else, including literal `{{`, passes through untouched.
 
 #### Built-in template functions
 
@@ -499,6 +524,7 @@ The FIFO backend creates named pipes at the mount point — one per file. When a
 - Tracks sessions by process group, with additive multi-project activation, auto-deactivation on directory change, and background reaping of dead shell processes
 - Caches rendered output encrypted in memory with a configurable TTL; serves stale content while refreshing in the background; scrubs plaintext on file handle close and cache expiry
 - Manages symlinks from conventional paths (`~/.netrc`) to the virtual mount point
+- Optionally records an audit trail of every secret read the daemon serves, including the calling process identity on FUSE
 - Installs as a launchd agent (macOS) or systemd user service (Linux); runs as your user, no root required (except tmpfs mount on Linux)
 
 ### What slinky does not do
@@ -536,6 +562,8 @@ The SHA-256 hash of each config file is stored in `~/.local/state/slinky/trusted
 **The control socket is restricted to same-UID processes.** The socket directory is created with mode `0700`, and each connection is verified via OS-level peer credentials (`SO_PEERCRED` on Linux, `LOCAL_PEERCRED` on macOS).
 
 **Environment variables are filtered before transmission.** On `activate`, the CLI walks the template AST to identify referenced variable names and only transmits those values plus a small allowlist of shell basics (`HOME`, `USER`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `LANG`) and `XDG_*` variables. The daemon caps env entries per request at 256.
+
+**Reads can be audited.** Slinky cannot prevent a same-UID process from reading mounted files, but it can make reads observable. With `[settings.audit] enabled = true`, every read served by the daemon is appended to a JSONL audit log (`~/.local/state/slinky/audit.log` by default, mode `0600`). The FUSE backend records the calling PID, UID, and process name for each open; the FIFO backend records that content was served (pipe readers are anonymous). Reads of tmpfs-backed files happen entirely in the kernel and are not observable. View the trail with `slinky audit` (`-f` to follow, `--json` for raw lines). The audit log records *who read what and when* — never secret content.
 
 **Secrets are stored only in encrypted memory.** Rendered output is encrypted with an age X25519 keypair and cached in-process. Entries are never written to persistent storage. With the default `ephemeral` cipher the private key exists only in daemon memory, so on daemon exit the key is gone and the cache is irrecoverable. The `keyring` and `keyctl` ciphers persist the keypair in the OS credential store or kernel keyring instead — the cache itself still never touches disk.
 
@@ -600,6 +628,7 @@ slinky activate --hook        # Shell hook mode: suppress output, warn on failur
 slinky deactivate [dir]       # Deactivate a directory context (default: $PWD)
 slinky deactivate --session 0 # Force-remove regardless of other sessions
 slinky deactivate --all       # Force-remove every active context
+slinky exec -- cmd [args...]  # Run a command with a context active, then clean up
 
 slinky allow [dir]            # Trust the project config in a directory
 slinky deny [dir]             # Revoke trust for the project config in a directory
@@ -617,9 +646,14 @@ slinky cfg hook [bash|zsh|fish]  # Print shell hook code for eval integration
 slinky render <name>          # Debug: render a single file to stdout without caching
 
 slinky cache clear            # Evict all cached entries
+slinky cache warm             # Pre-render all effective files into the cache
 slinky cache stats            # Show cache hit/miss rates and entry ages
 slinky cache list             # List cached entry keys
 slinky cache get <key>        # Decrypt and print a cached entry
+
+slinky audit                  # Show the secret read audit trail
+slinky audit -f               # Follow the audit trail live
+slinky audit -n 20 --json     # Last 20 entries as raw JSON
 
 slinky doctor                 # Diagnose common configuration and runtime issues
 
@@ -662,6 +696,22 @@ Removes a previously activated directory context. Its contributed files are remo
 - `--session <pid>` — Explicit session PID. `--session 0` force-removes regardless of other sessions.
 
 With session tracking, deactivating removes only the current session's reference. If other sessions still hold the activation, it remains active. Full removal happens when all sessions have deactivated or exited.
+
+### `slinky exec`
+
+Runs a single command with a directory context activated, then deactivates it — no shell hooks required. The context is activated with the calling environment, the command inherits stdio and gets its exit code propagated, and only this invocation's session reference is added and removed (concurrent shells holding the same activation are unaffected).
+
+```bash
+# Push with this project's registry credentials materialized
+slinky exec -- docker push ghcr.io/me/image
+
+# Combine with an env injector for fully one-shot secret flow
+op run --env-file=.env -- slinky exec -- npm publish
+```
+
+**Flags:**
+
+- `--dir <directory>` — Activate a different directory's context (default: `$PWD`).
 
 ### `slinky cfg hook`
 

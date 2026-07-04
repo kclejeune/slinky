@@ -206,3 +206,26 @@ func TestFilterEnvMissingTemplateFallback(t *testing.T) {
 		t.Error("expected original env to be returned unchanged")
 	}
 }
+
+func TestExtractEnvVarsCustomDelims(t *testing.T) {
+	tmpDir := t.TempDir()
+	tplFile := filepath.Join(tmpDir, "test.tpl")
+	if err := os.WriteFile(
+		tplFile,
+		[]byte(`a=<< env "DELIM_VAR_A" >> b=<< envDefault "DELIM_VAR_B" "x" >>`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	vars := ExtractEnvVars("test", &config.FileConfig{
+		Template: tplFile,
+		Delims:   []string{"<<", ">>"},
+	})
+	if vars == nil {
+		t.Fatal("ExtractEnvVars() = nil, want var set")
+	}
+	if !vars["DELIM_VAR_A"] || !vars["DELIM_VAR_B"] {
+		t.Errorf("vars = %v, want DELIM_VAR_A and DELIM_VAR_B", vars)
+	}
+}

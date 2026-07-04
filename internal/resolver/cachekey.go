@@ -38,6 +38,11 @@ func ComputeCacheKey(name string, cfg *config.FileConfig, env map[string]string)
 		h.Write([]byte(strings.Join(parts, "\x00")))
 	}
 
+	if len(cfg.Delims) == 2 {
+		h.Write([]byte("\x00\x00slinky:delims\x00\x00"))
+		h.Write([]byte(cfg.Delims[0] + "\x00" + cfg.Delims[1]))
+	}
+
 	if len(env) > 0 {
 		h.Write([]byte("\x00\x00slinky:env\x00\x00"))
 		keys := make([]string, 0, len(env))

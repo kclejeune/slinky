@@ -32,6 +32,12 @@ mount_point = "~/.secrets.d"
 cipher = "ephemeral"            # "ephemeral", "auto", "keychain", "keyring", or "keyctl" (Linux only)
 default_ttl = "5m"
 
+# Record secret reads to an audit log (view with "slinky audit"):
+#
+# [settings.audit]
+# enabled = true
+# log = "~/.local/state/slinky/audit.log"
+
 # Define secret files below. Example:
 #
 # [files.netrc]
@@ -410,10 +416,11 @@ func fileSource(fc *config.FileConfig) string {
 
 func renderCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "render <name>",
-		Short:   "Render a single file to stdout (debug)",
-		GroupID: "debug",
-		Args:    cobra.ExactArgs(1),
+		Use:               "render <name>",
+		Short:             "Render a single file to stdout (debug)",
+		GroupID:           "debug",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeFileNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(cfgFile)
 			if err != nil {
@@ -517,9 +524,10 @@ func cacheCmd() *cobra.Command {
 	})
 
 	cmd.AddCommand(&cobra.Command{
-		Use:   "get <key>",
-		Short: "Decrypt and print a cached entry",
-		Args:  cobra.ExactArgs(1),
+		Use:               "get <key>",
+		Short:             "Decrypt and print a cached entry",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeCacheKeys,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client := control.NewClient("")
 			resp, err := client.CacheGet(args[0])
@@ -534,5 +542,65 @@ func cacheCmd() *cobra.Command {
 		},
 	})
 
+	cmd.AddCommand(&cobra.Command{
+		Use:   "warm",
+		Short: "Pre-render all effective files into the cache",
+		Long: `Ask the daemon to render every effective file into the encrypted
+cache so subsequent reads are served without render latency. Useful after
+activating a context or reloading config.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client := control.NewClient("")
+			resp, err := client.CacheWarm()
+			if err != nil {
+				return err
+			}
+			if !resp.OK {
+				return fmt.Errorf("cache warm failed: %s", resp.Error)
+			}
+
+			for _, e := range resp.Errors {
+				fmt.Fprintf(os.Stderr, "error: %s\n", e)
+			}
+			fmt.Fprintf(os.Stderr, "warmed %d file(s)\n", resp.Warmed)
+			if len(resp.Errors) > 0 {
+				return fmt.Errorf("%d file(s) failed to render", len(resp.Errors))
+			}
+			return nil
+		},
+	})
+
 	return cmd
+}
+
+// completeFileNames provides shell completion of configured file names,
+// preferring the daemon's effective set and falling back to the global
+// config when the daemon is not running.
+func completeFileNames(
+	cmd *cobra.Command,
+	args []string,
+	toComplete string,
+) ([]string, cobra.ShellCompDirective) {
+	if resp, err := control.NewClient("").Status(); err == nil && len(resp.Files) > 0 {
+		return resp.Files, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return sortedFileNames(cfg.Files), cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeCacheKeys provides shell completion of cache entry keys from the
+// running daemon.
+func completeCacheKeys(
+	cmd *cobra.Command,
+	args []string,
+	toComplete string,
+) ([]string, cobra.ShellCompDirective) {
+	resp, err := control.NewClient("").CacheStats()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return slices.Sorted(maps.Keys(resp.Entries)), cobra.ShellCompDirectiveNoFileComp
 }

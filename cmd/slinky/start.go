@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -18,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 
+	"github.com/kclejeune/slinky/internal/audit"
 	"github.com/kclejeune/slinky/internal/cache"
 	"github.com/kclejeune/slinky/internal/cipher"
 	"github.com/kclejeune/slinky/internal/config"
@@ -115,6 +117,13 @@ func runForeground(mountBackend string) error {
 	// Atomic pointer avoids lock contention with context manager's onChange callback.
 	var currentCfg atomic.Pointer[config.Config]
 	currentCfg.Store(cfg)
+
+	setupAudit(cfg.Settings.Audit)
+	defer func() {
+		if old := audit.Set(nil); old != nil {
+			old.Close()
+		}
+	}()
 
 	ageCipher, err := cipher.New(string(cfg.Settings.Cache.Cipher))
 	if err != nil {
@@ -323,6 +332,18 @@ func runForeground(mountBackend string) error {
 		},
 	})
 
+	// Rule 6: reconfigure the audit recorder.
+	dispatcher.Register(reload.Rule{
+		Name: "reconfigure-audit",
+		Kind: reload.Callback,
+		Match: func(diff *config.DiffResult) bool {
+			return diff.OldSettings.Audit != diff.NewSettings.Audit
+		},
+		Handle: func(_, new *config.Config, _ *config.DiffResult) {
+			setupAudit(new.Settings.Audit)
+		},
+	})
+
 	cfgWatcher, cfgWatchErr := config.NewConfigWatcher(cfgPath, cfg, dispatcher.Dispatch)
 	if cfgWatchErr != nil {
 		slog.Warn("config watcher unavailable", "error", cfgWatchErr)
@@ -336,6 +357,20 @@ func runForeground(mountBackend string) error {
 	if cfgWatcher != nil {
 		ctlServer.SetReloadFunc(cfgWatcher.ForceReload)
 	}
+	ctlServer.SetWarmFunc(func() (int, []string) {
+		var warmed int
+		var errs []string
+		for _, name := range slices.Sorted(maps.Keys(ctxMgr.EffectiveFileConfigs())) {
+			content, err := secretResolver.Resolve(name)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", name, err))
+				continue
+			}
+			clear(content)
+			warmed++
+		}
+		return warmed, errs
+	})
 	ctlServer.SetConfigHashFunc(func() string {
 		h, err := currentCfg.Load().Hash()
 		if err != nil {
@@ -606,6 +641,29 @@ func daemonizeStart(mountBackend string) error {
 	fmt.Fprintf(os.Stderr, "slinky daemon started (pid %d)\n", c.Process.Pid)
 	fmt.Fprintf(os.Stderr, "  log: %s\n", logFilePath())
 	return nil
+}
+
+// setupAudit installs (or removes) the global audit recorder according to
+// the given settings, closing any previously installed recorder. A failure
+// to open the audit log disables auditing rather than failing daemon start.
+func setupAudit(ac config.AuditConfig) {
+	var rec *audit.Recorder
+	if ac.Enabled {
+		path := ac.Log
+		if path == "" {
+			path = audit.DefaultLogPath()
+		}
+		var err error
+		rec, err = audit.NewRecorder(config.ExpandPath(path))
+		if err != nil {
+			slog.Error("audit log unavailable, auditing disabled", "error", err)
+		} else {
+			slog.Info("audit trail enabled", "path", rec.Path())
+		}
+	}
+	if old := audit.Set(rec); old != nil {
+		old.Close()
+	}
 }
 
 // waitForShutdown polls until the given process exits or the timeout elapses.

@@ -23,6 +23,7 @@ type Server struct {
 	ctxMgr     *slinkycontext.Manager
 	configHash func() string // returns running config hash for staleness detection
 	reloadFunc func() (changed bool, err error)
+	warmFunc   func() (warmed int, errs []string)
 	cache      *cache.SecretCache
 	listener   net.Listener
 	sem        chan struct{} // concurrency limiter for handler goroutines
@@ -55,6 +56,13 @@ func (s *Server) SetCache(c *cache.SecretCache) {
 // changed, and return an error if the file could not be loaded.
 func (s *Server) SetReloadFunc(fn func() (changed bool, err error)) {
 	s.reloadFunc = fn
+}
+
+// SetWarmFunc sets the function invoked by the "cache_warm" control
+// request. It should render every effective file into the cache, returning
+// the number warmed and any per-file errors.
+func (s *Server) SetWarmFunc(fn func() (warmed int, errs []string)) {
+	s.warmFunc = fn
 }
 
 func DefaultSocketPath() string {
@@ -186,6 +194,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.handleCacheClear(conn)
 	case "reload":
 		s.handleReload(conn)
+	case "cache_warm":
+		s.handleCacheWarm(conn)
 	default:
 		writeJSON(conn, ActivateResponse{Error: fmt.Sprintf("unknown request type: %q", req.Type)})
 	}
@@ -382,6 +392,17 @@ func (s *Server) handleReload(conn net.Conn) {
 
 	slog.Info("config reloaded via control socket", "changed", changed)
 	writeJSON(conn, ReloadResponse{OK: true, Changed: changed})
+}
+
+func (s *Server) handleCacheWarm(conn net.Conn) {
+	if s.warmFunc == nil {
+		writeJSON(conn, CacheWarmResponse{Error: "cache warm not supported by this daemon"})
+		return
+	}
+
+	warmed, errs := s.warmFunc()
+	slog.Info("cache warmed via control socket", "warmed", warmed, "errors", len(errs))
+	writeJSON(conn, CacheWarmResponse{OK: true, Warmed: warmed, Errors: errs})
 }
 
 func writeJSON(conn net.Conn, v any) {

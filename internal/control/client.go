@@ -115,3 +115,11 @@ func (c *Client) Reload() (*ReloadResponse, error) {
 		Type:    "reload",
 	})
 }
+
+// CacheWarm asks the daemon to render every effective file into the cache.
+func (c *Client) CacheWarm() (*CacheWarmResponse, error) {
+	return roundTrip[CacheWarmResponse](c.socketPath, Request{
+		Version: ProtocolVersion,
+		Type:    "cache_warm",
+	})
+}

@@ -22,6 +22,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/kclejeune/slinky/internal/audit"
 	"github.com/kclejeune/slinky/internal/config"
 	slinkycontext "github.com/kclejeune/slinky/internal/context"
 	"github.com/kclejeune/slinky/internal/fsutil"
@@ -218,6 +219,9 @@ func (b *Backend) serveLoop(ctx context.Context, name, fifoPath string) {
 
 		if writeErr != nil {
 			slog.Warn("fifo: write error", "name", name, "error", writeErr)
+		} else {
+			// FIFO readers are anonymous: the pipe carries no peer identity.
+			audit.Record(audit.Event{Event: "serve", File: name, Backend: "fifo", PID: -1, UID: -1})
 		}
 	}
 }

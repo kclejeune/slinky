@@ -102,7 +102,17 @@ type Settings struct {
 	Mount              MountConfig   `toml:"mount"`
 	Cache              CacheConfig   `toml:"cache"`
 	Symlink            SymlinkConfig `toml:"symlink"`
+	Audit              AuditConfig   `toml:"audit"`
 	ProjectConfigNames []string      `toml:"project_config_names"`
+}
+
+// AuditConfig controls the secret read audit trail.
+type AuditConfig struct {
+	// Enabled turns on audit logging of secret file reads.
+	Enabled bool `toml:"enabled"`
+	// Log is the audit log file path. Empty means the default
+	// ($XDG_STATE_HOME/slinky/audit.log).
+	Log string `toml:"log"`
 }
 
 type Config struct {
@@ -138,6 +148,10 @@ type FileConfig struct {
 	Mode     uint32   `toml:"mode"`
 	TTL      Duration `toml:"ttl"`
 	Symlink  string   `toml:"symlink"`
+	// Delims overrides the template action delimiters for native render
+	// mode, e.g. ["<<", ">>"] for target formats that contain "{{".
+	// Must be empty or exactly two non-empty strings.
+	Delims []string `toml:"delims"`
 }
 
 func DefaultConfig() *Config {
@@ -245,8 +259,20 @@ func (fc *FileConfig) Validate(name string) error {
 		if fc.Command == "" {
 			return fmt.Errorf("file %q: command render mode requires 'command'", name)
 		}
+		if len(fc.Delims) > 0 {
+			return fmt.Errorf("file %q: 'delims' is only valid for native render mode", name)
+		}
 	default:
 		return fmt.Errorf("file %q: unsupported render mode: %q", name, fc.Render)
+	}
+
+	if len(fc.Delims) > 0 {
+		if len(fc.Delims) != 2 || fc.Delims[0] == "" || fc.Delims[1] == "" {
+			return fmt.Errorf(
+				"file %q: 'delims' must be exactly two non-empty strings, e.g. [\"<<\", \">>\"]",
+				name,
+			)
+		}
 	}
 
 	return nil

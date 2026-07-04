@@ -110,7 +110,11 @@ func (r *NativeRenderer) Render(
 		return nil, fmt.Errorf("building template functions: %w", err)
 	}
 
-	tmpl, err := template.New(name).Funcs(funcMap).Parse(tplText)
+	tmpl := template.New(name).Funcs(funcMap)
+	if len(cfg.Delims) == 2 {
+		tmpl = tmpl.Delims(cfg.Delims[0], cfg.Delims[1])
+	}
+	tmpl, err = tmpl.Parse(tplText)
 	if err != nil {
 		return nil, fmt.Errorf("parsing template %q: %w", tplPath, err)
 	}

@@ -29,7 +29,11 @@ func ExtractEnvVars(name string, cfg *config.FileConfig) map[string]bool {
 		return nil
 	}
 
-	tmpl, err := template.New(name).Funcs(funcMap).Parse(string(tplData))
+	tmpl := template.New(name).Funcs(funcMap)
+	if len(cfg.Delims) == 2 {
+		tmpl = tmpl.Delims(cfg.Delims[0], cfg.Delims[1])
+	}
+	tmpl, err = tmpl.Parse(string(tplData))
 	if err != nil {
 		return nil
 	}

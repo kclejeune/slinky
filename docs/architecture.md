@@ -19,6 +19,7 @@ _Source: [d2/overview.d2](d2/overview.d2)_
 ```
 cmd/slinky/          CLI entry point (cobra commands, service management)
 internal/
+  audit/             Append-only JSONL audit trail of secret reads
   cache/             Encrypted in-memory cache with TTL and background reaping
   cipher/            Cache cipher backends (age-ephemeral)
   config/            TOML config parsing, path expansion, validation
@@ -222,13 +223,14 @@ JSON-over-Unix-socket protocol. One JSON object per line. Request payload is cap
 - `cache_stats` — return cipher name and per-entry age/TTL/state
 - `cache_get` — decrypt and return a single cache entry
 - `cache_clear` — evict all cache entries
+- `cache_warm` — render every effective file into the cache
 
 **Responses**:
 
 - `ActivateResponse` / `DeactivateResponse`: `{ok, files, error}`
 - `StatusResponse`: `{running, config_hash, active_dirs, files, layers, sessions}`
 - `ReloadResponse`: `{ok, changed, error}`
-- `CacheStatsResponse` / `CacheGetResponse` / `CacheClearResponse`
+- `CacheStatsResponse` / `CacheGetResponse` / `CacheClearResponse` / `CacheWarmResponse`
 
 Socket path: `$XDG_STATE_HOME/slinky/ctl` (default: `~/.local/state/slinky/ctl`). The server removes a stale socket on startup and cleans up on shutdown.
 
@@ -262,6 +264,20 @@ All cipher backends encrypt cache entries to an age X25519 keypair; they differ 
 
 The cipher can be hot-swapped on config reload (`SwapCipher`); existing entries are scrubbed and the cache starts empty under the new cipher.
 
+### Audit trail (`internal/audit/`)
+
+When `[settings.audit]` is enabled, the daemon appends one JSON object per served read to an audit log (default `$XDG_STATE_HOME/slinky/audit.log`, mode `0600`):
+
+```json
+{"time":"...","event":"read","file":"netrc","backend":"fuse","pid":1234,"uid":1000,"process":"curl"}
+```
+
+- **FUSE** records a `read` event per `Open()`, with the caller's PID/UID from the kernel (`fuse.FromContext`) and the process name from `/proc/<pid>/comm` (or `ps` on macOS).
+- **FIFO** records a `serve` event per completed pipe write; pipe readers carry no peer identity (`pid`/`uid` are `-1`).
+- **tmpfs** reads happen entirely in the kernel and are not observable.
+
+The active recorder is process-global (mirroring `log/slog`): backends call `audit.Record` unconditionally, which is a single atomic load when auditing is disabled. Recorder writes never propagate errors into the read path. The recorder is hot-swapped by a reload rule when audit settings change. Only metadata is logged — never secret content.
+
 ### Symlink manager (`internal/symlink/`)
 
 Creates symlinks from conventional paths (`~/.netrc`) to mounted files (`~/.secrets.d/netrc`). Tracks managed symlinks for cleanup.
@@ -286,6 +302,7 @@ Creates symlinks from conventional paths (`~/.netrc`) to mounted files (`~/.secr
 | tmpfs refresh goroutine   | Single goroutine, serialized by event loop (ticker + reconfigCh)                                                            |
 | FIFO serve loops          | One goroutine per effective file; polls for readers with O_NONBLOCK; cancelled via child context on reconfigure or shutdown |
 | Reaper goroutine          | Single goroutine, 30-second tick                                                                                            |
+| Audit recorder (Mutex)    | Serializes audit log appends from concurrent read handlers; recorder pointer swapped atomically on config reload            |
 | Async cache refresh       | One goroutine per file, deduplicated by name                                                                                |
 
 Lock ordering: `activateMu` must be acquired before `mu`. The `onChange` callback is invoked outside both locks with a snapshot copy of the effective file map.

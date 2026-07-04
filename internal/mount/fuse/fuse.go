@@ -22,6 +22,7 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 	"golang.org/x/sys/unix"
 
+	"github.com/kclejeune/slinky/internal/audit"
 	"github.com/kclejeune/slinky/internal/config"
 	slinkycontext "github.com/kclejeune/slinky/internal/context"
 	"github.com/kclejeune/slinky/internal/resolver"
@@ -379,6 +380,16 @@ func (f *fuseFile) Open(
 	if err != nil {
 		slog.Error("resolve failed", "file", f.name, "error", err)
 		return nil, 0, syscall.EIO
+	}
+
+	if audit.Enabled() {
+		ev := audit.Event{Event: "read", File: f.name, Backend: "fuse", PID: -1, UID: -1}
+		if caller, ok := fuse.FromContext(ctx); ok {
+			ev.PID = int(caller.Pid)
+			ev.UID = int(caller.Uid)
+			ev.Process = audit.ProcessName(ev.PID)
+		}
+		audit.Record(ev)
 	}
 
 	return &secretHandle{content: content}, fuse.FOPEN_DIRECT_IO, 0

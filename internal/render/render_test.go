@@ -173,3 +173,32 @@ func TestNativeRendererWithEnvLookup(t *testing.T) {
 		t.Errorf("Render() = %q, want %q", result, "token=from_lookup")
 	}
 }
+
+func TestNativeRendererCustomDelims(t *testing.T) {
+	tmpDir := t.TempDir()
+	tplFile := filepath.Join(tmpDir, "test.tpl")
+	// The literal {{ }} must pass through untouched with custom delims.
+	if err := os.WriteFile(
+		tplFile,
+		[]byte(`token=<< env "TEST_DELIM_TOKEN" >> raw={{ untouched }}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("TEST_DELIM_TOKEN", "xyz789")
+
+	r := &NativeRenderer{}
+	result, err := r.Render("test", &config.FileConfig{
+		Template: tplFile,
+		Delims:   []string{"<<", ">>"},
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("Render() error: %v", err)
+	}
+
+	want := "token=xyz789 raw={{ untouched }}"
+	if string(result) != want {
+		t.Errorf("Render() = %q, want %q", result, want)
+	}
+}
