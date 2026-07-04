@@ -45,6 +45,14 @@ const (
 
 func (ct *CipherType) UnmarshalText(text []byte) error {
 	v := CipherType(text)
+	// Normalize accepted aliases to their canonical names so downstream
+	// comparisons (e.g. hot-reload cipher diffing) see a single spelling.
+	switch v {
+	case "age-ephemeral":
+		v = CipherEphemeral
+	case "keychain":
+		v = CipherKeyring
+	}
 	switch v {
 	case CipherAuto, CipherEphemeral, CipherKeyring, CipherKeyctl:
 		*ct = v

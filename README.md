@@ -22,7 +22,7 @@ Notably, `slinky` does not resolve secrets itself. It reads environment variable
 
 ## Quickstart
 
-1. **Install** — build from source with `go install github.com/kclejeune/slinky/cmd/slinky@latest`, or use `nix build .#slinky`.
+1. **Install** — build from source with `go install github.com/kclejeune/slinky/cmd/slinky@latest`, or download a release archive from the [releases page](https://github.com/kclejeune/slinky/releases).
 
 2. **Create a global config** using `slinky cfg init --global`, then edit it:
 
@@ -73,7 +73,7 @@ Notably, `slinky` does not resolve secrets itself. It reads environment variable
    Or start it manually for a one-off session:
 
    ```bash
-   slinky start -d
+   slinky start
    ```
 
 6. **Verify**:
@@ -194,12 +194,20 @@ mount_point = "~/.secrets.d"
 # ─── Cache settings ────────────────────────────────────────────
 
 [settings.cache]
-# Encryption backend for cached rendered templates.
-# Currently only "age-ephemeral" is supported: an age X25519 keypair is
-# generated in memory at startup. The cache is irrecoverable after daemon
-# exit.
-# Default: "age-ephemeral"
-cipher = "age-ephemeral"
+# Encryption backend for cached rendered templates. Cache entries are
+# encrypted with an age X25519 keypair; the cipher determines where that
+# keypair lives:
+#
+# ephemeral: (default) Keypair generated in memory at startup; the cache
+#            is irrecoverable after daemon exit. ("age-ephemeral" is an
+#            accepted alias.)
+# keyring:   Keypair persisted in the OS credential store (macOS Keychain,
+#            Linux Secret Service). "keychain" is an accepted alias.
+# keyctl:    Keypair persisted in the Linux kernel user keyring (Linux only).
+# auto:      Try keyring, then keyctl, then fall back to ephemeral.
+#
+# Default: "ephemeral"
+cipher = "ephemeral"
 
 # Default TTL for cached rendered output. After this duration the next
 # read triggers a background re-render; stale content is served in the
@@ -511,6 +519,10 @@ slinky allow
 
 # Revoke trust
 slinky deny
+
+# Audit the trust store
+slinky trust list    # show each entry as current, stale, or missing
+slinky trust prune   # drop entries whose config files no longer exist
 ```
 
 The SHA-256 hash of each config file is stored in `~/.local/state/slinky/trusted.json`. If a config file changes (e.g. after a `git pull`), re-approval is required. This is the same model used by [direnv](https://direnv.net/).
@@ -523,9 +535,9 @@ The SHA-256 hash of each config file is stored in `~/.local/state/slinky/trusted
 
 **The control socket is restricted to same-UID processes.** The socket directory is created with mode `0700`, and each connection is verified via OS-level peer credentials (`SO_PEERCRED` on Linux, `LOCAL_PEERCRED` on macOS).
 
-**Environment variables are filtered before transmission.** On `activate`, the CLI walks the template AST to identify referenced variable names and only transmits those values plus a small allowlist (`HOME`, `USER`, `PATH`). The daemon caps env entries per request at 256.
+**Environment variables are filtered before transmission.** On `activate`, the CLI walks the template AST to identify referenced variable names and only transmits those values plus a small allowlist of shell basics (`HOME`, `USER`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `LANG`) and `XDG_*` variables. The daemon caps env entries per request at 256.
 
-**Secrets are stored only in encrypted memory.** Rendered output is encrypted with an ephemeral age X25519 keypair and cached in-process. Entries are never written to persistent storage. On daemon exit the private key is gone and the cache is irrecoverable.
+**Secrets are stored only in encrypted memory.** Rendered output is encrypted with an age X25519 keypair and cached in-process. Entries are never written to persistent storage. With the default `ephemeral` cipher the private key exists only in daemon memory, so on daemon exit the key is gone and the cache is irrecoverable. The `keyring` and `keyctl` ciphers persist the keypair in the OS credential store or kernel keyring instead — the cache itself still never touches disk.
 
 **Cleanup on deactivation.** When a context is deactivated or the reaper removes a dead session, files are zero-overwritten (tmpfs) and symlinks are removed.
 
@@ -577,7 +589,9 @@ slinky start -m tmpfs         # Start with a specific backend (overrides config)
 slinky run                    # Run daemon in the foreground (alias)
 slinky stop                   # Stop daemon, unmount, clean up symlinks
 slinky restart                # Restart the running daemon
+slinky reload                 # Ask the running daemon to reload its config
 slinky status                 # Show daemon status, active dirs, sessions, files
+slinky status --json          # Machine-readable status output
 slinky log                    # Show daemon log output
 slinky log -f                 # Follow (tail) daemon log output
 
@@ -585,9 +599,12 @@ slinky activate [dir]         # Activate a directory context (default: $PWD)
 slinky activate --hook        # Shell hook mode: suppress output, warn on failure
 slinky deactivate [dir]       # Deactivate a directory context (default: $PWD)
 slinky deactivate --session 0 # Force-remove regardless of other sessions
+slinky deactivate --all       # Force-remove every active context
 
 slinky allow [dir]            # Trust the project config in a directory
 slinky deny [dir]             # Revoke trust for the project config in a directory
+slinky trust list             # List trusted configs (current/stale/missing)
+slinky trust prune            # Drop trust entries whose files no longer exist
 
 slinky cfg [dir]              # Show resolved config hierarchy for a directory
 slinky cfg init               # Create a project config (.slinky.toml) here
@@ -668,4 +685,4 @@ slinky svc uninstall  # stop + remove
 
 When running as a service the daemon starts with a minimal process environment. This is fine — environment variables needed by templates are provided by shell hooks at activation time: `slinky activate` captures the calling shell's full environment and forwards it to the daemon automatically.
 
-For a quick one-off session without installing a service, `slinky start -d` starts the daemon in the background directly. It will not restart on login or after a crash.
+For a quick one-off session without installing a service, `slinky start` starts the daemon in the background directly. It will not restart on login or after a crash.

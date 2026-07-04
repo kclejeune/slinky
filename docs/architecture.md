@@ -158,6 +158,10 @@ The trust system prevents untrusted `.slinky.toml` files from executing arbitrar
 
 **`slinky deny [dir]`**: Removes the config(s) from the trust store. Subsequent activations from that directory will fail until re-approved.
 
+**`slinky trust list`**: Shows every entry in the trust store with its state — `current` (hash matches), `stale` (file changed since approval), or `missing` (file deleted).
+
+**`slinky trust prune`**: Removes entries whose config files no longer exist on disk.
+
 **Global config is always trusted**: The global config at `~/.config/slinky/config.toml` is in a user-controlled location and bypasses the trust check entirely.
 
 ### SecretResolver (`internal/resolver/`)
@@ -209,16 +213,22 @@ The `EnvLookup` function chain: activation's captured env map → `os.LookupEnv(
 
 JSON-over-Unix-socket protocol. One JSON object per line. Request payload is capped at 1 MB.
 
-**Requests**: `{type, dir?, env?, session?}`
+**Requests**: `{type, dir?, env?, session?, key?}`
 
 - `activate` — discover layers, capture env, add/update activation
 - `deactivate` — remove session from activation
-- `status` — return running state, active dirs, files, layers, sessions
+- `status` — return running state, config hash, active dirs, files, layers, sessions
+- `reload` — force a config reload from disk (same path as the file watcher and SIGHUP)
+- `cache_stats` — return cipher name and per-entry age/TTL/state
+- `cache_get` — decrypt and return a single cache entry
+- `cache_clear` — evict all cache entries
 
 **Responses**:
 
 - `ActivateResponse` / `DeactivateResponse`: `{ok, files, error}`
-- `StatusResponse`: `{running, active_dirs, files, layers, sessions}`
+- `StatusResponse`: `{running, config_hash, active_dirs, files, layers, sessions}`
+- `ReloadResponse`: `{ok, changed, error}`
+- `CacheStatsResponse` / `CacheGetResponse` / `CacheClearResponse`
 
 Socket path: `$XDG_STATE_HOME/slinky/ctl` (default: `~/.local/state/slinky/ctl`). The server removes a stale socket on startup and cleans up on shutdown.
 
@@ -243,7 +253,14 @@ Peer credential verification via `SO_PEERCRED` (Linux) or `LOCAL_PEERCRED` (macO
 
 In-memory map of `key → {ciphertext, timestamp, ttl}`. A background reaper removes expired entries (past 2× TTL) every 30 seconds.
 
-**`age-ephemeral`** (only cipher backend): Fresh X25519 keypair generated in daemon memory at startup. All cache entries are encrypted to this key. When the daemon exits, the private key is gone and the cache is irrecoverable. No external dependencies beyond `filippo.io/age`.
+All cipher backends encrypt cache entries to an age X25519 keypair; they differ in where the keypair lives:
+
+- **`ephemeral`** (default; alias `age-ephemeral`): Fresh keypair generated in daemon memory at startup. When the daemon exits, the private key is gone and the cache is irrecoverable.
+- **`keyring`** (alias `keychain`): Keypair persisted in the OS credential store (macOS Keychain, Linux Secret Service) via go-keyring.
+- **`keyctl`** (Linux only): Keypair persisted in the kernel user keyring via keyctl syscalls.
+- **`auto`**: Tries keyring, then keyctl, then falls back to ephemeral.
+
+The cipher can be hot-swapped on config reload (`SwapCipher`); existing entries are scrubbed and the cache starts empty under the new cipher.
 
 ### Symlink manager (`internal/symlink/`)
 

@@ -112,7 +112,7 @@ Typically called from shell hooks (mise, direnv):
 					if hashErr == nil && diskHash != status.ConfigHash {
 						fmt.Fprintf(
 							os.Stderr,
-							"warning: daemon config is out of date (run `slinky stop && slinky start` or send SIGHUP to reload)\n",
+							"warning: daemon config is out of date (run `slinky reload`)\n",
 						)
 					}
 				}
@@ -135,6 +135,7 @@ Typically called from shell hooks (mise, direnv):
 func deactivateCmd() *cobra.Command {
 	var hook bool
 	var session int
+	var all bool
 
 	cmd := &cobra.Command{
 		Use:     "deactivate [directory]",
@@ -147,6 +148,7 @@ If no directory is specified, the current working directory ($PWD) is used.
 The calling shell's PID is automatically detected. Only that session's
 reference is removed; the activation persists until all sessions have left.
 Use --session 0 to force-remove an activation regardless of other sessions.
+Use --all to force-remove every active context.
 
 Typically called from shell hooks when leaving a directory:
 
@@ -155,6 +157,13 @@ Typically called from shell hooks when leaving a directory:
   run = "slinky deactivate --hook"`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if all {
+				if len(args) > 0 {
+					return fmt.Errorf("cannot combine --all with a directory argument")
+				}
+				return deactivateAll()
+			}
+
 			dir := ""
 			if len(args) > 0 {
 				dir = args[0]
@@ -206,7 +215,44 @@ Typically called from shell hooks when leaving a directory:
 		BoolVar(&hook, "hook", false, "shell hook mode: suppress output and warn instead of failing")
 	cmd.Flags().
 		IntVar(&session, "session", -1, "shell session PID for reference counting (default: auto-detect parent PID; 0 to disable)")
+	cmd.Flags().
+		BoolVar(&all, "all", false, "force-remove every active context")
 	return cmd
+}
+
+// deactivateAll force-removes every active context, regardless of sessions.
+func deactivateAll() error {
+	client := control.NewClient("")
+	status, err := client.Status()
+	if err != nil {
+		return err
+	}
+
+	if len(status.ActiveDirs) == 0 {
+		fmt.Fprintln(os.Stderr, "no active contexts")
+		return nil
+	}
+
+	var failed int
+	for _, dir := range status.ActiveDirs {
+		resp, err := client.Deactivate(dir, 0)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s: %v\n", dir, err)
+			failed++
+			continue
+		}
+		if !resp.OK {
+			fmt.Fprintf(os.Stderr, "error: %s: %s\n", dir, resp.Error)
+			failed++
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "deactivated context: %s\n", dir)
+	}
+
+	if failed > 0 {
+		return fmt.Errorf("failed to deactivate %d context(s)", failed)
+	}
+	return nil
 }
 
 // envAllowlist contains keys that are always forwarded to the daemon,

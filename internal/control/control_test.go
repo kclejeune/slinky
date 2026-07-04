@@ -335,6 +335,98 @@ func TestClientNoServer(t *testing.T) {
 	}
 }
 
+func TestServerReload(t *testing.T) {
+	tmpDir := t.TempDir()
+	socketPath := filepath.Join(tmpDir, "ctl")
+
+	globalCfg := &config.Config{
+		Files: map[string]*config.FileConfig{},
+	}
+
+	ctxMgr := slinkycontext.NewManager(globalCfg, slinkycontext.DefaultProjectConfigNames, nil)
+	server := NewServer(socketPath, ctxMgr)
+
+	var reloadCalls int
+	server.SetReloadFunc(func() (bool, error) {
+		reloadCalls++
+		return reloadCalls == 1, nil
+	})
+
+	if err := server.Listen(); err != nil {
+		t.Fatalf("Listen() error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = server.Serve(ctx) }()
+
+	client := NewClient(socketPath)
+
+	resp, err := client.Reload()
+	if err != nil {
+		t.Fatalf("Reload() error: %v", err)
+	}
+	if !resp.OK {
+		t.Errorf("Reload() OK = false, error: %s", resp.Error)
+	}
+	if !resp.Changed {
+		t.Error("Reload() Changed = false, want true on first call")
+	}
+
+	resp, err = client.Reload()
+	if err != nil {
+		t.Fatalf("Reload() error: %v", err)
+	}
+	if !resp.OK {
+		t.Errorf("Reload() OK = false, error: %s", resp.Error)
+	}
+	if resp.Changed {
+		t.Error("Reload() Changed = true, want false on second call")
+	}
+
+	if reloadCalls != 2 {
+		t.Errorf("reload func called %d times, want 2", reloadCalls)
+	}
+
+	cancel()
+}
+
+func TestServerReloadUnsupported(t *testing.T) {
+	tmpDir := t.TempDir()
+	socketPath := filepath.Join(tmpDir, "ctl")
+
+	globalCfg := &config.Config{
+		Files: map[string]*config.FileConfig{},
+	}
+
+	ctxMgr := slinkycontext.NewManager(globalCfg, slinkycontext.DefaultProjectConfigNames, nil)
+	server := NewServer(socketPath, ctxMgr)
+
+	if err := server.Listen(); err != nil {
+		t.Fatalf("Listen() error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = server.Serve(ctx) }()
+
+	client := NewClient(socketPath)
+	resp, err := client.Reload()
+	if err != nil {
+		t.Fatalf("Reload() error: %v", err)
+	}
+	if resp.OK {
+		t.Error("Reload() OK = true, want false when no reload func is set")
+	}
+	if resp.Error == "" {
+		t.Error("Reload() Error is empty, want explanatory message")
+	}
+
+	cancel()
+}
+
 func TestServerSessionRoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 	socketPath := filepath.Join(tmpDir, "ctl")

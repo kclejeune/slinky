@@ -148,7 +148,13 @@ template = "` + tplFile + `"
 		t.Fatal(err)
 	}
 
-	cw.ForceReload()
+	changed, err := cw.ForceReload()
+	if err != nil {
+		t.Fatalf("ForceReload() error = %v", err)
+	}
+	if !changed {
+		t.Error("ForceReload() changed = false, want true")
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -184,7 +190,9 @@ func TestConfigWatcherInvalidConfigKeepsCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cw.ForceReload()
+	if _, err := cw.ForceReload(); err == nil {
+		t.Error("ForceReload() expected error for invalid config, got nil")
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -216,7 +224,13 @@ func TestConfigWatcherNoChangeNoop(t *testing.T) {
 	defer cw.Close()
 
 	// ForceReload with no changes.
-	cw.ForceReload()
+	changed, err := cw.ForceReload()
+	if err != nil {
+		t.Fatalf("ForceReload() error = %v", err)
+	}
+	if changed {
+		t.Error("ForceReload() changed = true, want false")
+	}
 
 	mu.Lock()
 	defer mu.Unlock()

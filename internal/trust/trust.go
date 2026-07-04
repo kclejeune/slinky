@@ -113,6 +113,75 @@ func (s *Store) Deny(path string) error {
 	return s.save()
 }
 
+// EntryState describes how a trust store entry relates to the file on disk.
+type EntryState string
+
+const (
+	// EntryCurrent means the file exists and its hash matches the stored hash.
+	EntryCurrent EntryState = "current"
+	// EntryStale means the file exists but has changed since it was allowed.
+	EntryStale EntryState = "stale"
+	// EntryMissing means the file no longer exists on disk.
+	EntryMissing EntryState = "missing"
+)
+
+// List returns the state of every entry in the trust store, keyed by the
+// canonical config file path.
+func (s *Store) List() (map[string]EntryState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.load(); err != nil {
+		return nil, err
+	}
+
+	entries := make(map[string]EntryState, len(s.db))
+	for path, storedHash := range s.db {
+		currentHash, err := hashFile(path)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			entries[path] = EntryMissing
+		case err != nil:
+			return nil, fmt.Errorf("hashing %q: %w", path, err)
+		case currentHash == storedHash:
+			entries[path] = EntryCurrent
+		default:
+			entries[path] = EntryStale
+		}
+	}
+	return entries, nil
+}
+
+// Prune removes entries whose config files no longer exist on disk and
+// returns the removed paths.
+func (s *Store) Prune() ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.load(); err != nil {
+		return nil, err
+	}
+
+	var removed []string
+	for path := range s.db {
+		if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+			removed = append(removed, path)
+		}
+	}
+
+	if len(removed) == 0 {
+		return nil, nil
+	}
+
+	for _, path := range removed {
+		delete(s.db, path)
+	}
+	if err := s.save(); err != nil {
+		return nil, err
+	}
+	return removed, nil
+}
+
 // CheckPaths verifies that all given config file paths are trusted.
 // Returns the first untrusted path found, or "" if all are trusted.
 func (s *Store) CheckPaths(paths []string) (untrusted string, err error) {

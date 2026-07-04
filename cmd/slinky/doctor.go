@@ -24,7 +24,7 @@ func doctorCmd() *cobra.Command {
 	var dir string
 
 	cmd := &cobra.Command{
-		Use:     "doctor",
+		Use:     "doctor [directory]",
 		Aliases: []string{"dr"},
 		Short:   "Diagnose common issues",
 		GroupID: "debug",
@@ -37,7 +37,11 @@ func doctorCmd() *cobra.Command {
   - Template rendering (dry-run)
   - Symlink target accessibility
   - Daemon status`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				dir = args[0]
+			}
 			if dir == "" {
 				var err error
 				dir, err = os.Getwd()

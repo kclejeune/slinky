@@ -131,6 +131,41 @@ func TestBackendTypeUnmarshalText(t *testing.T) {
 	}
 }
 
+func TestCipherTypeUnmarshalText(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    CipherType
+		wantErr bool
+	}{
+		{"auto", CipherAuto, false},
+		{"ephemeral", CipherEphemeral, false},
+		{"keyring", CipherKeyring, false},
+		{"keyctl", CipherKeyctl, false},
+		// Documented aliases normalize to canonical names.
+		{"age-ephemeral", CipherEphemeral, false},
+		{"keychain", CipherKeyring, false},
+		{"invalid", "", true},
+	}
+
+	for _, tt := range tests {
+		var ct CipherType
+		err := ct.UnmarshalText([]byte(tt.input))
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("UnmarshalText(%q) expected error, got nil", tt.input)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("UnmarshalText(%q) error: %v", tt.input, err)
+			continue
+		}
+		if ct != tt.want {
+			t.Errorf("UnmarshalText(%q) = %q, want %q", tt.input, ct, tt.want)
+		}
+	}
+}
+
 func TestValidateInvalidCipher(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Settings.Cache.Cipher = CipherType("invalid")

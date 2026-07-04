@@ -110,7 +110,7 @@ func cfgCmd() *cobra.Command {
 	var dir string
 
 	cmd := &cobra.Command{
-		Use:     "config",
+		Use:     "config [directory]",
 		Aliases: []string{"cfg"},
 		Short:   "Show the resolved config hierarchy for a directory",
 		GroupID: "debug",
@@ -118,7 +118,11 @@ func cfgCmd() *cobra.Command {
 
 Shows the global config, discovered project configs, and the effective
 file set with which layer contributes each file (deepest wins).`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				dir = args[0]
+			}
 			if dir == "" {
 				var err error
 				dir, err = os.Getwd()
@@ -212,13 +216,17 @@ func cfgValidateCmd() *cobra.Command {
 	var dir string
 
 	cmd := &cobra.Command{
-		Use:   "validate",
+		Use:   "validate [directory]",
 		Short: "Validate config files without starting the daemon",
 		Long: `Check global and project config files for errors.
 
 Validates TOML syntax, required fields, template paths, render modes,
 and template parsing. Exits non-zero if any errors are found.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				dir = args[0]
+			}
 			if dir == "" {
 				var err error
 				dir, err = os.Getwd()

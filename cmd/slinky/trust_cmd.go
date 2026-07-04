@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 
 	"github.com/spf13/cobra"
 
@@ -129,6 +131,79 @@ revoke trust for configs in parent directories.`,
 	cmd.Flags().
 		BoolVarP(&all, "all", "a", false, "revoke trust for configs in parent directories too")
 	return cmd
+}
+
+func trustCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "trust",
+		Short:   "Inspect and maintain the project config trust store",
+		GroupID: "context",
+		Long: `Inspect and maintain the trust store used for project configs.
+
+Use "slinky allow" and "slinky deny" to grant or revoke trust for a
+specific project. This command audits the store as a whole.`,
+	}
+
+	cmd.AddCommand(trustListCmd())
+	cmd.AddCommand(trustPruneCmd())
+	return cmd
+}
+
+func trustListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List trusted project configs and their state",
+		Long: `List every project config in the trust store.
+
+Each entry is shown with its current state:
+
+  current  file exists and matches the hash recorded at approval
+  stale    file has changed since approval (re-run "slinky allow")
+  missing  file no longer exists (remove with "slinky trust prune")`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store := trust.NewStore(trust.DefaultStorePath())
+			entries, err := store.List()
+			if err != nil {
+				return err
+			}
+
+			if len(entries) == 0 {
+				fmt.Fprintln(os.Stderr, "trust store is empty")
+				return nil
+			}
+
+			for _, path := range slices.Sorted(maps.Keys(entries)) {
+				fmt.Printf("%-8s %s\n", entries[path], path)
+			}
+			return nil
+		},
+	}
+}
+
+func trustPruneCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "prune",
+		Short: "Remove trust entries for configs that no longer exist",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store := trust.NewStore(trust.DefaultStorePath())
+			removed, err := store.Prune()
+			if err != nil {
+				return err
+			}
+
+			if len(removed) == 0 {
+				fmt.Fprintln(os.Stderr, "nothing to prune")
+				return nil
+			}
+
+			slices.Sort(removed)
+			for _, path := range removed {
+				fmt.Fprintf(os.Stderr, "pruned %s\n", path)
+			}
+			return nil
+		},
+	}
 }
 
 // discoverPaths returns the project config paths to operate on.

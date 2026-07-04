@@ -70,8 +70,114 @@ func serviceCmd() *cobra.Command {
 
 	cmd.AddCommand(serviceInstallCmd())
 	cmd.AddCommand(serviceUninstallCmd())
+	cmd.AddCommand(serviceStartCmd())
+	cmd.AddCommand(serviceStopCmd())
+	cmd.AddCommand(serviceRestartCmd())
+	cmd.AddCommand(serviceStatusCmd())
 	cmd.AddCommand(serviceShowCmd())
 	return cmd
+}
+
+// requireInstalledService returns the service handle or an actionable error
+// when the service is not installed.
+func requireInstalledService() (svc.Service, error) {
+	s, installed := serviceInstalled()
+	if !installed {
+		return nil, fmt.Errorf("service not installed (run \"slinky svc install\" first)")
+	}
+	return s, nil
+}
+
+func serviceStartCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "start",
+		Short: "Start the slinky OS service",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, err := requireInstalledService()
+			if err != nil {
+				return err
+			}
+			if status, err := s.Status(); err == nil && status == svc.StatusRunning {
+				fmt.Fprintln(os.Stderr, "service already running")
+				return nil
+			}
+			if err := s.Start(); err != nil {
+				return fmt.Errorf("starting service: %w", err)
+			}
+			fmt.Fprintln(os.Stderr, "service started")
+			return nil
+		},
+	}
+}
+
+func serviceStopCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the slinky OS service",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, err := requireInstalledService()
+			if err != nil {
+				return err
+			}
+			if status, err := s.Status(); err == nil && status == svc.StatusStopped {
+				fmt.Fprintln(os.Stderr, "service already stopped")
+				return nil
+			}
+			if err := s.Stop(); err != nil {
+				return fmt.Errorf("stopping service: %w", err)
+			}
+			fmt.Fprintln(os.Stderr, "service stopped")
+			return nil
+		},
+	}
+}
+
+func serviceRestartCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restart",
+		Short: "Restart the slinky OS service",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, err := requireInstalledService()
+			if err != nil {
+				return err
+			}
+			if err := s.Restart(); err != nil {
+				return fmt.Errorf("restarting service: %w", err)
+			}
+			fmt.Fprintln(os.Stderr, "service restarted")
+			return nil
+		},
+	}
+}
+
+func serviceStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show the slinky OS service status",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, installed := serviceInstalled()
+			if !installed {
+				fmt.Println("service not installed")
+				return nil
+			}
+
+			status, err := s.Status()
+			switch {
+			case err != nil:
+				fmt.Printf("service status unknown (%v)\n", err)
+			case status == svc.StatusRunning:
+				fmt.Println("service running")
+			case status == svc.StatusStopped:
+				fmt.Println("service stopped")
+			default:
+				fmt.Println("service status unknown")
+			}
+			if unit := serviceUnitPath(); unit != "" {
+				fmt.Printf("  unit: %s\n", unit)
+			}
+			return nil
+		},
+	}
 }
 
 func serviceInstallCmd() *cobra.Command {

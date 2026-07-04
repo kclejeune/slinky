@@ -333,6 +333,9 @@ func runForeground(mountBackend string) error {
 
 	ctlServer := control.NewServer("", ctxMgr)
 	ctlServer.SetCache(secretCache)
+	if cfgWatcher != nil {
+		ctlServer.SetReloadFunc(cfgWatcher.ForceReload)
+	}
 	ctlServer.SetConfigHashFunc(func() string {
 		h, err := currentCfg.Load().Hash()
 		if err != nil {
@@ -372,7 +375,14 @@ func runForeground(mountBackend string) error {
 			case unix.SIGHUP:
 				slog.Info("received SIGHUP, reloading config")
 				if cfgWatcher != nil {
-					go cfgWatcher.ForceReload()
+					go func() {
+						if _, err := cfgWatcher.ForceReload(); err != nil {
+							slog.Error(
+								"config reload failed, keeping current config",
+								"error", err,
+							)
+						}
+					}()
 				}
 			default:
 				slog.Info("received signal, shutting down", "signal", sig)

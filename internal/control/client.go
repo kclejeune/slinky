@@ -107,3 +107,11 @@ func (c *Client) CacheClear() (*CacheClearResponse, error) {
 		Type:    "cache_clear",
 	})
 }
+
+// Reload asks the daemon to re-read its config file from disk.
+func (c *Client) Reload() (*ReloadResponse, error) {
+	return roundTrip[ReloadResponse](c.socketPath, Request{
+		Version: ProtocolVersion,
+		Type:    "reload",
+	})
+}

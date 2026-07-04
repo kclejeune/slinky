@@ -22,6 +22,7 @@ type Server struct {
 	socketPath string
 	ctxMgr     *slinkycontext.Manager
 	configHash func() string // returns running config hash for staleness detection
+	reloadFunc func() (changed bool, err error)
 	cache      *cache.SecretCache
 	listener   net.Listener
 	sem        chan struct{} // concurrency limiter for handler goroutines
@@ -47,6 +48,13 @@ func (s *Server) SetConfigHashFunc(fn func() string) {
 // SetCache sets the secret cache for cache-related control commands.
 func (s *Server) SetCache(c *cache.SecretCache) {
 	s.cache = c
+}
+
+// SetReloadFunc sets the function invoked by the "reload" control request.
+// It should re-read the daemon config from disk, report whether the config
+// changed, and return an error if the file could not be loaded.
+func (s *Server) SetReloadFunc(fn func() (changed bool, err error)) {
+	s.reloadFunc = fn
 }
 
 func DefaultSocketPath() string {
@@ -176,6 +184,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.handleCacheGet(conn, req)
 	case "cache_clear":
 		s.handleCacheClear(conn)
+	case "reload":
+		s.handleReload(conn)
 	default:
 		writeJSON(conn, ActivateResponse{Error: fmt.Sprintf("unknown request type: %q", req.Type)})
 	}
@@ -355,6 +365,23 @@ func (s *Server) handleCacheClear(conn net.Conn) {
 		s.cache.Clear()
 	}
 	writeJSON(conn, CacheClearResponse{OK: true})
+}
+
+func (s *Server) handleReload(conn net.Conn) {
+	if s.reloadFunc == nil {
+		writeJSON(conn, ReloadResponse{Error: "reload not supported by this daemon"})
+		return
+	}
+
+	changed, err := s.reloadFunc()
+	if err != nil {
+		slog.Warn("config reload via control socket failed", "error", err)
+		writeJSON(conn, ReloadResponse{Error: err.Error()})
+		return
+	}
+
+	slog.Info("config reloaded via control socket", "changed", changed)
+	writeJSON(conn, ReloadResponse{OK: true, Changed: changed})
 }
 
 func writeJSON(conn net.Conn, v any) {
