@@ -1,0 +1,43 @@
+name: Dependabot auto-merge
+
+# Release age is handled by dependabot.yml. Required CI gates the actual merge.
+on: pull_request
+
+jobs:
+  auto-merge:
+    name: auto-merge
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Queue auto-merge
+        # Metadata calls the ecosystem go_modules, rather than gomod.
+        # For a group, update-type is its largest bump, so majors stay manual.
+        if: >-
+          steps.meta.outputs.package-ecosystem == 'go_modules' &&
+          contains(fromJSON('["version-update:semver-patch", "version-update:semver-minor"]'), steps.meta.outputs.update-type)
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Report the auto-merge decision
+        env:
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          ELIGIBLE: ${{ steps.meta.outputs.package-ecosystem == 'go_modules' && contains(fromJSON('["version-update:semver-patch", "version-update:semver-minor"]'), steps.meta.outputs.update-type) }}
+        run: |
+          if [[ "$ELIGIBLE" == true ]]; then
+            decision="Auto-merge enabled; required CI checks must pass."
+          else
+            decision="Manual merge required: this ecosystem or update type is outside the auto-merge policy."
+          fi
+          printf '%s\nEcosystem: %s\nUpdate type: %s\n' "$decision" "$ECOSYSTEM" "$UPDATE_TYPE" | tee -a "$GITHUB_STEP_SUMMARY"

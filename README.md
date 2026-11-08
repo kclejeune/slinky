@@ -568,6 +568,33 @@ Any tool that populates environment variables works. Start the daemon once, call
 
 For internal details — package structure, data flow sequence diagrams, concurrency model, and component descriptions — see [docs/architecture.md](docs/architecture.md).
 
+## Development and CI
+
+CI uses Go 1.26 (matching `mise.toml`) and runs one combined `checks` job per platform. Linux uses one VM for lint,
+race tests, and GoReleaser snapshot builds. macOS lint and race tests run on
+GitHub-hosted runners on every PR and push, exercising the OS-specific code.
+Lint and tests run concurrently within each VM; Linux cross-compilation follows
+because GoReleaser's hooks can update module files. Builds cover the configured
+Linux and macOS targets, including ARM64, without native build runners.
+
+`SLINKY_RUNNER` selects the Linux runner for owner-triggered branch runs. The
+maintainer instance uses `boat` (4 vCPU, 8 GB RAM), with one fresh VM per CI run.
+An unset variable falls back to GitHub runners. Dependabot PRs, fork PRs, other
+actors, release tags, and manual runs with **github-hosted** selected also use
+GitHub runners. Superseded branch runs are cancelled.
+
+```bash
+gh variable set SLINKY_RUNNER --repo kclejeune/slinky --body boat
+boat ci --repo kclejeune/slinky
+CGO_ENABLED=1 go test -race ./...
+```
+
+Dependabot batches Go patch/minor version updates into one weekly PR, with a
+two-day minimum release age. The auto-merge workflow enables merging after
+required CI passes; major updates stay separate and manual. Security updates
+bypass the version-update cooldown. Branch protection requires both
+`checks (linux)` and `checks (macos)`.
+
 ## CLI reference
 
 ```

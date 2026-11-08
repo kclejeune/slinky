@@ -7,75 +7,68 @@ on:
     branches:
       - "main"
   pull_request:
+  workflow_dispatch:
+    inputs:
+      github-hosted:
+        description: Use GitHub runners even when SLINKY_RUNNER is set
+        type: boolean
+        default: false
 
+# Boat's public-repository allowlist permits only owner-triggered runs.
+# Dependabot PRs use GitHub runners even when the owner refreshes their branch.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
-  lint:
+  checks:
+    name: checks (${{ matrix.platform }})
     strategy:
+      fail-fast: false
       matrix:
-        go:
-          - stable
-        os:
-          - ubuntu-latest
-          - macos-latest
-    name: lint
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version: ${{ matrix.go }}
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.10
-          only-new-issues: true
-  test:
-    name: test
-    strategy:
-      matrix:
-        go:
-          - stable
-        os:
-          - ubuntu-latest
-          - macos-latest
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version: stable
-      - name: Test
-        uses: robherley/go-test-action@v0
-      - run: go test -race ./...
-
-  build:
-    name: build
-    needs:
-      - lint
-      - test
-    runs-on: ubuntu-latest
+        platform:
+          - linux
+          - macos
+    runs-on: ${{ matrix.platform == 'macos' && 'macos-latest' || !inputs.github-hosted && github.ref_type != 'tag' && github.actor == github.repository_owner && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && vars.SLINKY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # Match mise.toml and the Go version supported by golangci-lint 2.10.
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          go-version: "1.26"
+      - parallel:
+          - name: golangci-lint
+            uses: golangci/golangci-lint-action@v9
+            with:
+              version: v2.10
+              only-new-issues: true
+              args: --concurrency=2
+            env:
+              GOMAXPROCS: "2"
+          # The race run executes the full suite; a plain run is redundant.
+          - name: Go tests (race detector)
+            run: go test -race ./...
+            env:
+              CGO_ENABLED: "1"
+              GOMAXPROCS: "2"
+      # Keep builds after the checks: GoReleaser's hooks run go mod tidy.
+      # Its CGO_ENABLED=0 builds cover Linux and macOS, including ARM64.
       - uses: goreleaser/goreleaser-action@v7
+        if: runner.os == 'Linux'
         with:
           version: "~> v2"
           args: build --clean --snapshot
 
   release:
     name: release
-    needs:
-      - lint
-      - test
-      - build
+    needs: checks
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -86,7 +79,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          go-version: "1.26"
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
