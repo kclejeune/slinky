@@ -570,7 +570,7 @@ For internal details — package structure, data flow sequence diagrams, concurr
 
 ## Development and CI
 
-CI runs one combined `checks` job per platform. Linux uses one VM for lint,
+CI uses Go 1.26 (matching `mise.toml`) and runs one combined `checks` job per platform. Linux uses one VM for lint,
 race tests, and GoReleaser snapshot builds. macOS lint and race tests run on
 GitHub-hosted runners on every PR and push, exercising the OS-specific code.
 Lint and tests run concurrently within each VM; Linux cross-compilation follows
