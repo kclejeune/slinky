@@ -589,10 +589,6 @@ boat ci --repo kclejeune/slinky
 CGO_ENABLED=1 go test -race ./...
 ```
 
-For native Linux ARM64 validation, run **CI** manually with **linux-arm64**
-selected. This runs only the ARM64 race tests on GitHub's ARM64 runner and
-consumes no Boat starts. Regular CI cross-compiles ARM64 release targets.
-
 Dependabot batches Go patch/minor version updates into one weekly PR, with a
 two-day minimum release age. The auto-merge workflow enables merging after
 required CI passes; major updates stay separate and manual. Security updates
